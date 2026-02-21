@@ -1,21 +1,41 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
+import {
+  NotificationEventType,
+  LinkCreatedPayload,
+  PaymentDetectedPayload,
+  UsernameClaimedPayload,
+} from '../events/notification.events';
+
+export interface NotificationTransport {
+  send(event: NotificationEventType, payload: any): Promise<void>;
+}
+
+@Injectable()
+export class LogNotificationTransport implements NotificationTransport {
+  private readonly logger = new Logger('NotificationTransport');
+  async send(event: NotificationEventType, payload: any): Promise<void> {
+    this.logger.log(`[Stub] Notification: ${event}`);
+    this.logger.debug(`Payload: ${JSON.stringify(payload)}`);
+  }
+}
 
 @Injectable()
 export class NotificationService {
-  private readonly logger = new Logger('NotificationHook');
+  constructor(private readonly transport: LogNotificationTransport) {}
 
-  // Handles the username event
-  @OnEvent('username.claimed', { async: true })
-  handleUsernameClaimed(payload: { username: string; publicKey: string }) {
-    this.logger.log(`[Stub] Intent: Notify via Telegram for New Username`);
-    this.logger.debug(`Payload Shape: username=${payload.username}, pk=${payload.publicKey}`);
+  @OnEvent(NotificationEventType.LinkCreated, { async: true })
+  async handleLinkCreated(payload: LinkCreatedPayload) {
+    await this.transport.send(NotificationEventType.LinkCreated, payload);
   }
 
-  // Handles the payment event
-  @OnEvent('payment.received', { async: true })
-  handlePaymentReceived(payload: { txHash: string; amount: string }) {
-    this.logger.log(`[Stub] Intent: Notify via Email for Payment`);
-    this.logger.debug(`Payload Shape: txHash=${payload.txHash}, amount=${payload.amount}`);
+  @OnEvent(NotificationEventType.PaymentDetected, { async: true })
+  async handlePaymentDetected(payload: PaymentDetectedPayload) {
+    await this.transport.send(NotificationEventType.PaymentDetected, payload);
+  }
+
+  @OnEvent(NotificationEventType.UsernameClaimed, { async: true })
+  async handleUsernameClaimed(payload: UsernameClaimedPayload) {
+    await this.transport.send(NotificationEventType.UsernameClaimed, payload);
   }
 }
