@@ -39,3 +39,5 @@ export class NotificationService {
     await this.transport.send(NotificationEventType.UsernameClaimed, payload);
   }
 }
+
+#fixed
