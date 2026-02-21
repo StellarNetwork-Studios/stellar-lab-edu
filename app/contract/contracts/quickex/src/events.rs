@@ -98,6 +98,24 @@ pub(crate) fn publish_contract_upgraded(
     .publish(env);
 }
 
+#[allow(dead_code)]
+#[contractevent(topics = ["ContractInitialized"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractInitializedEvent {
+    #[topic]
+    pub admin: Address,
+    pub timestamp: u64,
+}
+
+#[allow(dead_code)]
+pub(crate) fn publish_contract_initialized(env: &Env, admin: &Address, timestamp: u64) {
+    ContractInitializedEvent {
+        admin: admin.clone(),
+        timestamp,
+    }
+    .publish(env);
+}
+
 pub(crate) fn publish_withdraw_toggled(env: &Env, to: Address, commitment: BytesN<32>) {
     WithdrawToggledEvent {
         to,

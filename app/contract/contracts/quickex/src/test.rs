@@ -775,3 +775,179 @@ fn test_upgrade_without_admin_initialized_fails() {
     // Try to upgrade without admin set - should fail with Unauthorized
     client.upgrade(&caller, &new_wasm_hash);
 }
+
+#[test]
+fn test_deposit_when_paused_fails() {
+    let (env, client) = setup();
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    
+    // Create token
+    let token_id = env
+        .register_stellar_asset_contract_v2(token_admin.clone())
+        .address();
+    let token_client = token::StellarAssetClient::new(&env, &token_id);
+    
+    // Mint tokens for user
+    token_client.mint(&user, &1000);
+    
+    // Initialize admin
+    client.initialize(&admin);
+    
+    // Pause the contract
+    client.set_paused(&admin, &true);
+    
+    // Attempt to deposit - should fail
+    let salt = Bytes::from_slice(&env, b"test_salt");
+    let result = client.try_deposit(&token_id, &500, &user, &salt);
+    
+    assert!(result.is_err());
+    if let Err(Ok(error)) = result {
+        assert_eq!(error, QuickexError::ContractPaused);
+    }
+}
+
+#[test]
+fn test_withdraw_when_paused_fails() {
+    let (env, client) = setup();
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    
+    // Create token
+    let token_id = env
+        .register_stellar_asset_contract_v2(token_admin.clone())
+        .address();
+    let token_client = token::StellarAssetClient::new(&env, &token_id);
+    
+    // Mint tokens for user
+    token_client.mint(&user, &1000);
+    
+    // Initialize admin
+    client.initialize(&admin);
+    
+    // Create a commitment manually
+    let amount: i128 = 500;
+    let salt = Bytes::from_slice(&env, b"test_salt");
+    
+    let mut data = Bytes::new(&env);
+    let address_bytes: Bytes = user.clone().to_xdr(&env);
+    data.append(&address_bytes);
+    data.append(&Bytes::from_slice(&env, &amount.to_be_bytes()));
+    data.append(&salt);
+    let commitment: BytesN<32> = env.crypto().sha256(&data).into();
+    
+    // Setup escrow entry
+    setup_escrow(&env, &client.address, &token_id, amount, commitment.clone());
+    
+    // Mint tokens to contract
+    token_client.mint(&client.address, &amount);
+    
+    // Pause the contract
+    client.set_paused(&admin, &true);
+    
+    // Attempt to withdraw - should fail
+    let result = client.try_withdraw(&token_id, &amount, &commitment, &user, &salt);
+    
+    assert!(result.is_err());
+    if let Err(Ok(error)) = result {
+        assert_eq!(error, QuickexError::ContractPaused);
+    }
+}
+
+#[test]
+fn test_deposit_with_commitment_when_paused_fails() {
+    let (env, client) = setup();
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    
+    // Create token
+    let token_id = env
+        .register_stellar_asset_contract_v2(token_admin.clone())
+        .address();
+    let token_client = token::StellarAssetClient::new(&env, &token_id);
+    
+    // Mint tokens for user
+    token_client.mint(&user, &1000);
+    
+    // Initialize admin
+    client.initialize(&admin);
+    
+    // Create a commitment manually
+    let amount: i128 = 500;
+    let commitment = BytesN::from_array(&env, &[1; 32]);
+    
+    // Pause the contract
+    client.set_paused(&admin, &true);
+    
+    // Attempt to deposit with commitment - should fail
+    let result = client.try_deposit_with_commitment(&user, &token_id, &amount, &commitment);
+    
+    assert!(result.is_err());
+    if let Err(Ok(error)) = result {
+        assert_eq!(error, QuickexError::ContractPaused);
+    }
+}
+
+#[test]
+fn test_admin_transfer_functionality() {
+    let (env, client) = setup();
+    let admin = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+    
+    // Initialize with original admin
+    client.initialize(&admin);
+    
+    // Verify original admin is set
+    assert_eq!(client.get_admin(), Some(admin.clone()));
+    
+    // Transfer admin rights
+    client.set_admin(&admin, &new_admin);
+    
+    // Verify new admin is set
+    assert_eq!(client.get_admin(), Some(new_admin.clone()));
+    
+    // Verify old admin can no longer perform admin functions
+    let result = client.try_set_paused(&admin, &true);
+    assert!(result.is_err());
+    if let Err(Ok(error)) = result {
+        assert_eq!(error, QuickexError::Unauthorized);
+    }
+    
+    // Verify new admin can perform admin functions
+    client.set_paused(&new_admin, &true);
+    assert!(client.is_paused());
+}
+
+#[test]
+fn test_admin_operations_allowed_when_not_paused() {
+    let (env, client) = setup();
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    
+    // Create token
+    let token_id = env
+        .register_stellar_asset_contract_v2(token_admin.clone())
+        .address();
+    let token_client = token::StellarAssetClient::new(&env, &token_id);
+    
+    // Mint tokens for user
+    token_client.mint(&user, &1000);
+    
+    // Initialize admin
+    client.initialize(&admin);
+    
+    // Verify contract is not paused by default
+    assert!(!client.is_paused());
+    
+    // Verify deposits work when not paused
+    let salt = Bytes::from_slice(&env, b"test_salt");
+    let commitment = client.try_deposit(&token_id, &500, &user, &salt).unwrap().unwrap();
+    
+    // Verify withdrawals work when not paused
+    let result = client.try_withdraw(&token_id, &500, &commitment, &user, &salt);
+    assert!(result.is_ok());
+}

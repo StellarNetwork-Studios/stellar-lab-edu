@@ -77,7 +77,6 @@ pub fn is_paused(env: &Env) -> bool {
 
 /// Require that the contract is not paused
 /// This helper function should be called at the start of deposit/withdraw functions
-#[allow(dead_code)]
 pub fn require_not_paused(env: &Env) -> Result<(), QuickexError> {
     if is_paused(env) {
         return Err(QuickexError::ContractPaused);
