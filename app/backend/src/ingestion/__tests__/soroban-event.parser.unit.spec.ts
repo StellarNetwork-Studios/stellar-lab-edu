@@ -1,4 +1,4 @@
-import { xdr, Address, nativeToScVal } from "stellar-sdk";
+import { xdr, Address, nativeToScVal, Keypair } from "stellar-sdk";
 import {
   SorobanEventParser,
   RawHorizonContractEvent,
@@ -9,7 +9,8 @@ function symVal(s: string): xdr.ScVal {
 }
 
 function addressVal(pubkey: string): xdr.ScVal {
-  return Address.fromString(pubkey).toScVal();
+  // For test purposes, use nativeToScVal which handles both G and C addresses
+  return nativeToScVal(pubkey, { type: "address" });
 }
 
 function bytesVal(hex: string): xdr.ScVal {
@@ -42,8 +43,10 @@ function makeRaw(
   };
 }
 
-const OWNER = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
+// Generate valid test addresses
+const OWNER = Keypair.random().publicKey();
 const TOKEN = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
+const ADMIN2 = Keypair.random().publicKey();
 const COMMITMENT_HEX = "deadbeef".repeat(8);
 
 describe("SorobanEventParser", () => {
@@ -129,7 +132,6 @@ describe("SorobanEventParser", () => {
 
   describe("AdminChanged", () => {
     it("parses a valid AdminChanged event", () => {
-      const ADMIN2 = "GBVVJJWOR35BPXM2XJQLMQBDNKJWKJNPGQLDNPVKPOUJDMKBDLKMNKR";
       const topics = [
         symVal("AdminChanged"),
         addressVal(OWNER),

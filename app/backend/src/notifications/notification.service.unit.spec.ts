@@ -61,15 +61,18 @@ describe("NotificationService (Event Hook Verification)", () => {
 
   it('should react to "username.claimed" event and call dispatch', async () => {
     const dispatchSpy = jest
-      .spyOn(NotificationService.prototype, "dispatch")
+      .spyOn(service, "dispatch")
       .mockResolvedValue(undefined);
 
     const payload = {
       username: "test_user",
-      publicKey: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN",
+      publicKey: "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN7",
     };
 
     await eventEmitter.emitAsync("username.claimed", payload);
+    
+    // Wait for async event handlers to complete
+    await new Promise(resolve => setTimeout(resolve, 100));
 
     expect(dispatchSpy).toHaveBeenCalledWith(
       expect.objectContaining({ eventType: "username.claimed" }),
@@ -79,7 +82,7 @@ describe("NotificationService (Event Hook Verification)", () => {
 
   it('should react to "payment.received" event and call dispatch', async () => {
     const dispatchSpy = jest
-      .spyOn(NotificationService.prototype, "dispatch")
+      .spyOn(service, "dispatch")
       .mockResolvedValue(undefined);
 
     const payload = {
@@ -87,10 +90,13 @@ describe("NotificationService (Event Hook Verification)", () => {
       amount: "100000000",
       sender: "GSENDER",
       recipientPublicKey:
-        "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN",
+        "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN7",
     };
 
     await eventEmitter.emitAsync("payment.received", payload);
+    
+    // Wait for async event handlers to complete
+    await new Promise(resolve => setTimeout(resolve, 100));
 
     expect(dispatchSpy).toHaveBeenCalledWith(
       expect.objectContaining({ eventType: "payment.received" }),

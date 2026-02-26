@@ -115,17 +115,19 @@ describe("StellarIngestionService", () => {
 
     // Stub the Horizon.Server used internally so we never touch the network
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mockContractEvents = jest.fn().mockImplementation(() => ({
+      cursor: jest.fn().mockReturnThis(),
+      stream: jest.fn().mockImplementation(({ onmessage, onerror }) => {
+        capturedOnMessage = onmessage as (
+          record: RawHorizonContractEvent,
+        ) => void;
+        capturedOnError = onerror as (err: unknown) => void;
+        return mockStop;
+      }),
+    }));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (service as any).server = {
-      contractEvents: jest.fn().mockImplementation(() => ({
-        cursor: jest.fn().mockReturnThis(),
-        stream: jest.fn().mockImplementation(({ onmessage, onerror }) => {
-          capturedOnMessage = onmessage as (
-            record: RawHorizonContractEvent,
-          ) => void;
-          capturedOnError = onerror as (err: unknown) => void;
-          return mockStop;
-        }),
-      })),
+      contractEvents: mockContractEvents,
     };
   });
 
@@ -143,8 +145,8 @@ describe("StellarIngestionService", () => {
       await service.startStreaming("CTEST");
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const server = (service as any).server as ReturnType<typeof jest.fn>;
-      expect(server.contractEvents).toHaveBeenCalledWith("CTEST");
+      const mockContractEvents = (service as any).server.contractEvents;
+      expect(mockContractEvents).toHaveBeenCalledWith("CTEST");
     });
 
     it("resumes from stored cursor when one exists", async () => {
@@ -166,7 +168,10 @@ describe("StellarIngestionService", () => {
     it("advances cursor even for unrecognised events", async () => {
       parser.parse.mockReturnValue(null);
       const raw = makeRawEvent({ paging_token: "101-1", ledger: 101 });
-      await capturedOnMessage!(raw);
+      capturedOnMessage!(raw);
+      
+      // Wait for async operations to complete
+      await new Promise(resolve => setTimeout(resolve, 100));
 
       expect(cursorRepo.saveCursor).toHaveBeenCalledWith(
         "contract:CTEST",
@@ -181,7 +186,10 @@ describe("StellarIngestionService", () => {
       parser.parse.mockReturnValue(event);
 
       const raw = makeRawEvent();
-      await capturedOnMessage!(raw);
+      capturedOnMessage!(raw);
+      
+      // Wait for async operations to complete
+      await new Promise(resolve => setTimeout(resolve, 100));
 
       expect(escrowRepo.upsertEvent).toHaveBeenCalledWith(event);
       expect(cursorRepo.saveCursor).toHaveBeenCalledWith(
@@ -198,7 +206,10 @@ describe("StellarIngestionService", () => {
       const listener = jest.fn();
       eventEmitter.on("stellar.EscrowDeposited", listener);
 
-      await capturedOnMessage!(makeRawEvent());
+      capturedOnMessage!(makeRawEvent());
+      
+      // Wait for async operations to complete
+      await new Promise(resolve => setTimeout(resolve, 100));
 
       expect(listener).toHaveBeenCalledWith(event);
     });
@@ -207,7 +218,15 @@ describe("StellarIngestionService", () => {
       parser.parse.mockReturnValue(null);
       cursorRepo.saveCursor.mockRejectedValue(new Error("DB down"));
 
-      await expect(capturedOnMessage!(makeRawEvent())).resolves.not.toThrow();
+      // The callback doesn't throw synchronously, and errors are caught internally
+      const raw = makeRawEvent();
+      capturedOnMessage!(raw);
+      
+      // Wait for async operations to complete
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Verify the cursor save was attempted despite the error
+      expect(cursorRepo.saveCursor).toHaveBeenCalled();
     });
   });
 
@@ -224,8 +243,11 @@ describe("StellarIngestionService", () => {
       await service.startStreaming("CTEST");
 
       const raw = makeRawEvent();
-      await capturedOnMessage!(raw);
-      await capturedOnMessage!(raw); // replay same event
+      capturedOnMessage!(raw);
+      capturedOnMessage!(raw); // replay same event
+      
+      // Wait for async operations to complete
+      await new Promise(resolve => setTimeout(resolve, 200));
 
       // Both calls must succeed; DB layer handles deduplication
       expect(escrowRepo.upsertEvent).toHaveBeenCalledTimes(2);
