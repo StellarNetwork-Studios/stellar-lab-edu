@@ -2,7 +2,7 @@
 //!
 //! See [`crate::storage`] for the storage schema and key layout.
 
-use soroban_sdk::{contracttype, Address};
+use soroban_sdk::{contracttype, Address, Vec};
 
 /// Escrow entry status.
 ///
@@ -81,5 +81,34 @@ pub struct PrivacyAwareEscrowView {
     /// Creation timestamp (always visible).
     pub created_at: u64,
     /// Expiry timestamp; `0` means no expiry (always visible).
+    pub expires_at: u64,
+}
+
+/// Multi-Signature Escrow entry structure.
+///
+/// Stored under [`DataKey::MultiSigEscrow`](crate::storage::DataKey::MultiSigEscrow)(commitment).
+/// Requires m-of-n signatures from `signers` (based on `threshold`) to release funds to `destination`.
+#[contracttype]
+#[derive(Clone)]
+pub struct MultiSigEscrow {
+    /// Token contract address for the escrowed funds.
+    pub token: Address,
+    /// Amount in token base units.
+    pub amount: i128,
+    /// Owner who deposited and may refund after expiry.
+    pub owner: Address,
+    /// Destination address to receive funds upon successful release.
+    pub destination: Address,
+    /// The allowed signers array (n).
+    pub signers: Vec<Address>,
+    /// Minimum required signatures to release funds (m).
+    pub threshold: u32,
+    /// Signers who have already provided approval.
+    pub approvals: Vec<Address>,
+    /// Current status (Pending, Spent, Refunded, Expired).
+    pub status: EscrowStatus,
+    /// Ledger timestamp when the escrow was created.
+    pub created_at: u64,
+    /// Ledger timestamp after which refund is enabled. `0` means no expiry.
     pub expires_at: u64,
 }

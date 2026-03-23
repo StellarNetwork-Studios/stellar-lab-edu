@@ -15,6 +15,7 @@ pub enum QuickexError {
     InvalidAmount = 100,
     InvalidSalt = 101,
     InvalidPrivacyLevel = 102,
+    InvalidThreshold = 103,
     // Auth/admin failures (200-299)
     Unauthorized = 200,
     AlreadyInitialized = 201,
@@ -32,6 +33,9 @@ pub enum QuickexError {
     EscrowNotExpired = 308,
     /// Caller is not the original owner of the escrow.
     InvalidOwner = 309,
+    SignerNotAuthorized = 310,
+    AlreadyApproved = 311,
+    ThresholdNotMet = 312,
     // Internal/unexpected conditions (900-999)
     InternalError = 900,
 }

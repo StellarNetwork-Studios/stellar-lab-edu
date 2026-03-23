@@ -40,7 +40,7 @@
 
 use soroban_sdk::{contracttype, Address, Bytes, Env, Vec};
 
-use crate::types::EscrowEntry;
+use crate::types::{EscrowEntry, MultiSigEscrow};
 
 // -----------------------------------------------------------------------------
 // Key constants (for keys not using DataKey)
@@ -75,6 +75,8 @@ pub enum DataKey {
     PrivacyLevel(Address),
     /// Privacy level change history per account.
     PrivacyHistory(Address),
+    /// Multi-signature escrow entry keyed by commitment hash (`Bytes`, typically 32 bytes).
+    MultiSigEscrow(Bytes),
 }
 
 // -----------------------------------------------------------------------------
@@ -102,6 +104,29 @@ pub fn get_escrow(env: &Env, commitment: &Bytes) -> Option<EscrowEntry> {
 #[allow(dead_code)]
 pub fn has_escrow(env: &Env, commitment: &Bytes) -> bool {
     let key = DataKey::Escrow(commitment.clone());
+    env.storage().persistent().has(&key)
+}
+
+/// Put a multisig escrow entry into storage.
+///
+/// **Contract**: Overwrites any existing entry for the same commitment.
+pub fn put_multisig_escrow(env: &Env, commitment: &Bytes, entry: &MultiSigEscrow) {
+    let key = DataKey::MultiSigEscrow(commitment.clone());
+    env.storage().persistent().set(&key, entry);
+}
+
+/// Get a multisig escrow entry from storage.
+///
+/// **Contract**: Returns `None` if no multisig escrow exists for the commitment.
+pub fn get_multisig_escrow(env: &Env, commitment: &Bytes) -> Option<MultiSigEscrow> {
+    let key = DataKey::MultiSigEscrow(commitment.clone());
+    env.storage().persistent().get(&key)
+}
+
+/// Check if a multisig escrow entry exists in storage.
+#[allow(dead_code)]
+pub fn has_multisig_escrow(env: &Env, commitment: &Bytes) -> bool {
+    let key = DataKey::MultiSigEscrow(commitment.clone());
     env.storage().persistent().has(&key)
 }
 

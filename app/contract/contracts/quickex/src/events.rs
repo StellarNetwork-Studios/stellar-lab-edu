@@ -179,3 +179,101 @@ pub(crate) fn publish_escrow_refunded(
     }
     .publish(env);
 }
+
+#[contractevent(topics = ["MultiSigDeposited"]) ]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MultiSigDepositedEvent {
+    #[topic]
+    pub commitment: BytesN<32>,
+
+    #[topic]
+    pub owner: Address,
+
+    #[topic]
+    pub destination: Address,
+
+    pub token: Address,
+    pub amount: i128,
+    pub threshold: u32,
+    pub expires_at: u64,
+    pub timestamp: u64,
+}
+
+#[contractevent(topics = ["MultiSigApproved"]) ]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MultiSigApprovedEvent {
+    #[topic]
+    pub commitment: BytesN<32>,
+
+    #[topic]
+    pub signer: Address,
+
+    pub timestamp: u64,
+}
+
+#[contractevent(topics = ["MultiSigReleased"]) ]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MultiSigReleasedEvent {
+    #[topic]
+    pub commitment: BytesN<32>,
+
+    #[topic]
+    pub destination: Address,
+
+    pub token: Address,
+    pub amount: i128,
+    pub timestamp: u64,
+}
+
+pub(crate) fn publish_multisig_deposited(
+    env: &Env,
+    commitment: BytesN<32>,
+    owner: Address,
+    destination: Address,
+    token: Address,
+    amount: i128,
+    threshold: u32,
+    expires_at: u64,
+) {
+    MultiSigDepositedEvent {
+        commitment,
+        owner,
+        destination,
+        token,
+        amount,
+        threshold,
+        expires_at,
+        timestamp: env.ledger().timestamp(),
+    }
+    .publish(env);
+}
+
+pub(crate) fn publish_multisig_approved(
+    env: &Env,
+    commitment: BytesN<32>,
+    signer: Address,
+) {
+    MultiSigApprovedEvent {
+        commitment,
+        signer,
+        timestamp: env.ledger().timestamp(),
+    }
+    .publish(env);
+}
+
+pub(crate) fn publish_multisig_released(
+    env: &Env,
+    commitment: BytesN<32>,
+    destination: Address,
+    token: Address,
+    amount: i128,
+) {
+    MultiSigReleasedEvent {
+        commitment,
+        destination,
+        token,
+        amount,
+        timestamp: env.ledger().timestamp(),
+    }
+    .publish(env);
+}

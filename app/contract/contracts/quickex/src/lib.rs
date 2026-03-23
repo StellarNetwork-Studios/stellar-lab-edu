@@ -10,6 +10,9 @@ mod commitment_test;
 mod errors;
 mod escrow;
 mod events;
+mod multisig;
+#[cfg(test)]
+mod multisig_test;
 mod privacy;
 mod storage;
 #[cfg(test)]
@@ -477,5 +480,65 @@ impl QuickexContract {
         events::publish_contract_upgraded(&env, new_wasm_hash, &admin);
 
         Ok(())
+    }
+
+    /// Deposit funds into a multi-signature escrow.
+    pub fn deposit_multisig(
+        env: Env,
+        token: Address,
+        amount: i128,
+        owner: Address,
+        destination: Address,
+        signers: Vec<Address>,
+        threshold: u32,
+        salt: Bytes,
+        timeout_secs: u64,
+    ) -> Result<BytesN<32>, QuickexError> {
+        if admin::is_paused(&env) {
+            return Err(QuickexError::ContractPaused);
+        }
+        multisig::deposit_multisig(
+            &env,
+            token,
+            amount,
+            owner,
+            destination,
+            signers,
+            threshold,
+            salt,
+            timeout_secs,
+        )
+    }
+
+    /// Approve a multi-signature escrow submission.
+    pub fn approve_multisig(
+        env: Env,
+        commitment: BytesN<32>,
+        signer: Address,
+    ) -> Result<(), QuickexError> {
+        if admin::is_paused(&env) {
+            return Err(QuickexError::ContractPaused);
+        }
+        multisig::approve_multisig(&env, commitment, signer)
+    }
+
+    /// Release a multi-signature escrow when enough approvals are gathered.
+    pub fn release_multisig(env: Env, commitment: BytesN<32>) -> Result<(), QuickexError> {
+        if admin::is_paused(&env) {
+            return Err(QuickexError::ContractPaused);
+        }
+        multisig::release_multisig(&env, commitment)
+    }
+
+    /// Refund a multi-signature escrow back to the original owner after timeout.
+    pub fn refund_multisig(
+        env: Env,
+        commitment: BytesN<32>,
+        caller: Address,
+    ) -> Result<(), QuickexError> {
+        if admin::is_paused(&env) {
+            return Err(QuickexError::ContractPaused);
+        }
+        multisig::refund_multisig(&env, commitment, caller)
     }
 }
