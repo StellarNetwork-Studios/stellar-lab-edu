@@ -50,6 +50,9 @@ function makeEscrowDepositedEvent(
   };
 }
 
+// Flush all microtasks/promises in the queue
+const flushPromises = () => new Promise<void>((resolve) => setImmediate(resolve));
+
 // ---------------------------------------------------------------------------
 // Mock factories
 // ---------------------------------------------------------------------------
@@ -84,28 +87,26 @@ describe("StellarIngestionService", () => {
   let escrowRepo: jest.Mocked<EscrowEventRepository>;
   let parser: jest.Mocked<SorobanEventParser>;
   let eventEmitter: EventEmitter2;
+  let module: TestingModule;
 
-  // Capture the stream callbacks installed by the service
-  let capturedOnMessage: ((record: RawHorizonContractEvent) => void) | null =
-    null;
   let capturedOnError: ((err: unknown) => void) | null = null;
   const mockStop = jest.fn();
+
+  // Helper to trigger a message and wait for all async processing to complete
+  const triggerMessage = async (raw: RawHorizonContractEvent) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (service as any).handleRecord(raw, "contract:CTEST");
+  };
 
   beforeEach(async () => {
     cursorRepo = mockCursorRepo();
     escrowRepo = mockEscrowRepo();
     parser = mockParser();
-    capturedOnMessage = null;
     capturedOnError = null;
     mockStop.mockClear();
 
-    const module: TestingModule = await Test.createTestingModule({
-      imports: [
-        EventEmitterModule.forRoot({
-          wildcard: true,
-          delimiter: ".",
-        }),
-      ],
+    module = await Test.createTestingModule({
+      imports: [EventEmitterModule.forRoot({ wildcard: true, delimiter: "." })],
       providers: [
         StellarIngestionService,
         { provide: AppConfigService, useValue: mockConfig() },
@@ -118,30 +119,22 @@ describe("StellarIngestionService", () => {
     service = module.get(StellarIngestionService);
     eventEmitter = module.get(EventEmitter2);
 
-    // Stub the Horizon.Server used internally so we never touch the network
+    // Stub the Horizon.Server
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const mockServer = {
+    (service as any).server = {
       contractEvents: jest.fn().mockImplementation(() => ({
         cursor: jest.fn().mockReturnThis(),
-        stream: jest.fn().mockImplementation(({ onmessage, onerror }) => {
-          capturedOnMessage = (record: RawHorizonContractEvent) => {
-            // Call the async handleRecord method and wait for it to complete
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            return (service as any).handleRecord(record, "contract:CTEST");
-          };
+        stream: jest.fn().mockImplementation(({ onerror }) => {
           capturedOnError = onerror as (err: unknown) => void;
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          void onmessage;
           return mockStop;
         }),
       })),
     };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (service as unknown as { server: typeof mockServer }).server = mockServer;
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     service.onModuleDestroy();
+    await module.close();
   });
 
   // -------------------------------------------------------------------------
@@ -177,10 +170,7 @@ describe("StellarIngestionService", () => {
     it("advances cursor even for unrecognised events", async () => {
       parser.parse.mockReturnValue(null);
       const raw = makeRawEvent({ paging_token: "101-1", ledger: 101 });
-      capturedOnMessage!(raw);
-      
-      // Flush all pending promises
-      await new Promise(setImmediate);
+      await triggerMessage(raw);
 
       expect(cursorRepo.saveCursor).toHaveBeenCalledWith(
         "contract:CTEST",
@@ -194,11 +184,7 @@ describe("StellarIngestionService", () => {
       const event = makeEscrowDepositedEvent();
       parser.parse.mockReturnValue(event);
 
-      const raw = makeRawEvent();
-      capturedOnMessage!(raw);
-      
-      // Flush all pending promises
-      await new Promise(setImmediate);
+      await triggerMessage(makeRawEvent());
 
       expect(escrowRepo.upsertEvent).toHaveBeenCalledWith(event);
       expect(cursorRepo.saveCursor).toHaveBeenCalledWith(
@@ -215,10 +201,8 @@ describe("StellarIngestionService", () => {
       const listener = jest.fn();
       eventEmitter.on("stellar.EscrowDeposited", listener);
 
-      capturedOnMessage!(makeRawEvent());
-      
-      // Flush all pending promises
-      await new Promise(setImmediate);
+      await triggerMessage(makeRawEvent());
+      await flushPromises();
 
       expect(listener).toHaveBeenCalledWith(event);
     });
@@ -227,10 +211,7 @@ describe("StellarIngestionService", () => {
       parser.parse.mockReturnValue(null);
       cursorRepo.saveCursor.mockRejectedValue(new Error("DB down"));
 
-      // Start streaming to capture the onmessage callback
-      await service.startStreaming("CTEST");
-
-      await expect(capturedOnMessage!(makeRawEvent())).resolves.not.toThrow();
+      await expect(triggerMessage(makeRawEvent())).resolves.not.toThrow();
     });
   });
 
@@ -242,17 +223,14 @@ describe("StellarIngestionService", () => {
     it("calls upsertEvent (ON CONFLICT DO NOTHING) on duplicate events", async () => {
       const event = makeEscrowDepositedEvent();
       parser.parse.mockReturnValue(event);
-      escrowRepo.upsertEvent.mockResolvedValue(undefined); // idempotent – no error on duplicate
+      escrowRepo.upsertEvent.mockResolvedValue(undefined);
+
+      await service.startStreaming("CTEST");
 
       const raw = makeRawEvent();
-      capturedOnMessage!(raw);
-      capturedOnMessage!(raw); // replay same event
-      
-      // Flush all pending promises
-      await new Promise(setImmediate);
-      await new Promise(setImmediate);
+      await triggerMessage(raw);
+      await triggerMessage(raw); // replay same event
 
-      // Both calls must succeed; DB layer handles deduplication
       expect(escrowRepo.upsertEvent).toHaveBeenCalledTimes(2);
     });
   });
@@ -262,7 +240,13 @@ describe("StellarIngestionService", () => {
   // -------------------------------------------------------------------------
 
   describe("reconnection", () => {
-    jest.useFakeTimers();
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
 
     it("schedules a reconnect when stream emits an error", async () => {
       await service.startStreaming("CTEST");
@@ -272,24 +256,19 @@ describe("StellarIngestionService", () => {
       );
 
       capturedOnError!(new Error("Connection reset"));
-
-      // Back-off timer should be scheduled
       jest.advanceTimersByTime(1_100);
-      // openStream would be called again
+
       expect(openStreamSpy).toHaveBeenCalledTimes(1);
     });
 
     it("uses exponential back-off on repeated failures", async () => {
       await service.startStreaming("CTEST");
-
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const svc = service as any;
 
-      // Simulate multiple disconnects
       capturedOnError!(new Error("disconnect 1"));
-      expect(svc.currentBackoffMs).toBe(2_000); // doubled from 1_000
+      expect(svc.currentBackoffMs).toBe(2_000);
 
-      // Re-open stream
       jest.advanceTimersByTime(2_100);
       capturedOnError!(new Error("disconnect 2"));
       expect(svc.currentBackoffMs).toBe(4_000);
@@ -305,7 +284,7 @@ describe("StellarIngestionService", () => {
       svc.currentBackoffMs = 32_000;
 
       capturedOnError!(new Error("disconnect"));
-      expect(svc.currentBackoffMs).toBe(60_000); // capped
+      expect(svc.currentBackoffMs).toBe(60_000);
     });
 
     it("does not reconnect after onModuleDestroy()", async () => {
@@ -320,10 +299,6 @@ describe("StellarIngestionService", () => {
 
       jest.advanceTimersByTime(2_000);
       expect(openStreamSpy).not.toHaveBeenCalled();
-    });
-
-    afterEach(() => {
-      jest.useRealTimers();
     });
   });
 });
