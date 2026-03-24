@@ -66,10 +66,25 @@ pub enum DataKey {
     Admin,
     /// Paused state (singleton).
     Paused,
+    /// Detailed pause flags mask (singleton).
+    Pause,
     /// Numeric privacy level per account.
     PrivacyLevel(Address),
     /// Privacy level change history per account.
     PrivacyHistory(Address),
+}
+
+/// Feature-specific pause flags for disabling particular operations.
+#[soroban_sdk::contracttype]
+#[repr(u64)]
+#[derive(Clone, Copy, PartialEq)]
+pub enum PauseFlag {
+    Deposit = 1,
+    DepositWithCommitment = 2,
+    Withdrawal = 3,
+    Refund = 4,
+    SetPrivacy = 5,
+    CreateAmountCommitment = 6,
 }
 
 // -----------------------------------------------------------------------------
@@ -192,4 +207,32 @@ pub fn get_privacy_history(env: &Env, account: &Address) -> Vec<u32> {
         .persistent()
         .get(&key)
         .unwrap_or(Vec::new(env))
+}
+
+// -----------------------------------------------------------------------------
+// Feature Pause Helpers
+// -----------------------------------------------------------------------------
+
+/// Get the current feature-pause mask from storage.
+pub fn get_pause_mask(env: &Env) -> u64 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::Pause)
+        .unwrap_or(0u64)
+}
+
+/// Check if a specific feature is currently paused.
+pub fn is_feature_paused(env: &Env, flag: PauseFlag) -> bool {
+    let mask = get_pause_mask(env);
+    (mask & flag as u64) != 0
+}
+
+/// Enable or disable specific feature-pause flags (**Admin-only logic**).
+///
+/// **Contract**: `flags_to_enable` are OR-ed into the mask, `flags_to_disable` are AND-NOT-ed.
+pub fn set_pause_flags(env: &Env, _caller: &Address, flags_to_enable: u64, flags_to_disable: u64) {
+    let mut mask = get_pause_mask(env);
+    mask |= flags_to_enable;
+    mask &= !flags_to_disable;
+    env.storage().persistent().set(&DataKey::Pause, &mask);
 }
