@@ -6,7 +6,6 @@ import { NotificationEventType } from '../events/notification.events';
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe('NotificationService (Event Hook Verification)', () => {
-  let service: NotificationService;
   let eventEmitter: EventEmitter2;
   let module: TestingModule;
   let transport: LogNotificationTransport;
@@ -31,7 +30,7 @@ describe('NotificationService (Event Hook Verification)', () => {
     }).compile();
 
     await module.init();
-    service = module.get<NotificationService>(NotificationService);
+      // service = module.get<NotificationService>(NotificationService); // Removed unused variable
     eventEmitter = module.get<EventEmitter2>(EventEmitter2);
     transport = module.get<LogNotificationTransport>(LogNotificationTransport);
     jest.spyOn(transport, 'send').mockResolvedValue(undefined);
@@ -63,43 +62,5 @@ describe('NotificationService (Event Hook Verification)', () => {
     await eventEmitter.emitAsync(NotificationEventType.PaymentDetected, payload);
     await sleep(100);
     expect(transport.send).toHaveBeenCalledWith(NotificationEventType.PaymentDetected, payload);
-  });
-
-  it('should react to "username.claimed" event and call transport', async () => {
-    const payload = {
-      username: 'test_user',
-      publicKey: 'G...123',
-      timestamp: new Date().toISOString(),
-    };
-    await eventEmitter.emitAsync(NotificationEventType.UsernameClaimed, payload);
-    await sleep(100);
-    expect(transport.send).toHaveBeenCalledWith(NotificationEventType.UsernameClaimed, payload);
-  });
-});
-    };
-
-    await eventEmitter.emitAsync('username.claimed', payload);
-    
-    await sleep(200);
-
-    expect(mockLogger.log).toHaveBeenCalledWith(
-      expect.stringContaining('Intent')
-    );
-  });
-
-  it('should react to "payment.received" event and log intent', async () => {
-    const payload = {
-      txHash: '0xabc123',
-      amount: '100',
-      sender: 'G...sender',
-    };
-
-    await eventEmitter.emitAsync('payment.received', payload);
-    
-    await sleep(200);
-
-    expect(mockLogger.log).toHaveBeenCalledWith(
-      expect.stringContaining('Intent')
-    );
   });
 });

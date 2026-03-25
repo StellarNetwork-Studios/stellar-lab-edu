@@ -12,13 +12,17 @@ import {
  * NotificationTransport defines the contract for all notification delivery mechanisms.
  * Implementations can include email, webhook, Telegram, etc.
  */
+import { LinkCreatedPayload, PaymentDetectedPayload, UsernameClaimedPayload } from '../events/notification.events';
+
+export type NotificationPayload = LinkCreatedPayload | PaymentDetectedPayload | UsernameClaimedPayload;
+
 export interface NotificationTransport {
   /**
    * Send a notification event with the given payload.
    * @param event - The type of notification event.
    * @param payload - The event payload.
    */
-  send(event: NotificationEventType, payload: any): Promise<void>;
+  send(event: NotificationEventType, payload: NotificationPayload): Promise<void>;
 }
 
 /**
@@ -28,7 +32,7 @@ export interface NotificationTransport {
 @Injectable()
 export class LogNotificationTransport implements NotificationTransport {
   private readonly logger = new Logger('NotificationTransport');
-  async send(event: NotificationEventType, payload: any): Promise<void> {
+  async send(event: NotificationEventType, payload: NotificationPayload): Promise<void> {
     this.logger.log(`[Stub] Notification: ${event}`);
     this.logger.debug(`Payload: ${JSON.stringify(payload)}`);
   }
