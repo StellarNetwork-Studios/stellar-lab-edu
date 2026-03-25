@@ -16,6 +16,7 @@
 //! | [`Pause`](DataKey::Pause) | `u64`         | Feature-based pause mask. |
 //! | [`PrivacyLevel`](DataKey::PrivacyLevel) | `u32`  | Numeric privacy level per account (0 = off). Used by `enable_privacy`. |
 //! | [`PrivacyHistory`](DataKey::PrivacyHistory) | `Vec<u32>` | Per-account history of privacy level changes (chronological). |
+//! | [`StealthEscrow`](DataKey::StealthEscrow) | `StealthEscrowEntry` | Stealth escrow entry (Privacy v2). |
 //!
 //! ## Related Keys (outside `DataKey`)
 //!
@@ -40,9 +41,9 @@
 //! - **Value layout**: Changing `EscrowEntry` fields may require migration logic; adding optional
 //!   fields can be done carefully with defaults.
 
-use soroban_sdk::{contracttype, Address, Bytes, Env, Vec};
+use soroban_sdk::{contracttype, Address, Bytes, BytesN, Env, Vec};
 
-use crate::types::EscrowEntry;
+use crate::types::{EscrowEntry, StealthEscrowEntry};
 
 // -----------------------------------------------------------------------------
 // Key constants (for keys not using DataKey)
@@ -81,6 +82,8 @@ pub enum DataKey {
     PrivacyHistory(Address),
     /// Contract version number (singleton).
     Version,
+    /// Stealth escrow entry keyed by the 32-byte stealth address (Privacy v2).
+    StealthEscrow(BytesN<32>),
 }
 
 // -----------------------------------------------------------------------------
@@ -256,4 +259,20 @@ pub fn set_pause_flags(env: &Env, _caller: &Address, flags_to_enable: u64, flags
     mask &= !flags_to_disable;
 
     env.storage().persistent().set(&DataKey::Pause, &mask);
+}
+
+// -----------------------------------------------------------------------------
+// Stealth escrow helpers (Privacy v2 – Issue #157)
+// -----------------------------------------------------------------------------
+
+/// Put a stealth escrow entry into storage.
+pub fn put_stealth_escrow(env: &Env, stealth_address: &BytesN<32>, entry: &StealthEscrowEntry) {
+    let key = DataKey::StealthEscrow(stealth_address.clone());
+    env.storage().persistent().set(&key, entry);
+}
+
+/// Get a stealth escrow entry from storage.
+pub fn get_stealth_escrow(env: &Env, stealth_address: &BytesN<32>) -> Option<StealthEscrowEntry> {
+    let key = DataKey::StealthEscrow(stealth_address.clone());
+    env.storage().persistent().get(&key)
 }

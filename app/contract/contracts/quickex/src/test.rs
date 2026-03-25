@@ -1305,7 +1305,15 @@ fn test_version_and_migration() {
     data.append(&Bytes::from_slice(&env, &amount.to_be_bytes()));
     data.append(&salt);
     let commitment: BytesN<32> = env.crypto().sha256(&data).into();
-    setup_escrow_with_owner(&env, &client.address, &token, &owner, amount, commitment.clone(), 0);
+    setup_escrow_with_owner(
+        &env,
+        &client.address,
+        &token,
+        &owner,
+        amount,
+        commitment.clone(),
+        0,
+    );
 
     // 3. Manually set version to 0 in storage to simulate an old contract
     env.as_contract(&client.address, || {
