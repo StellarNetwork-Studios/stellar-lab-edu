@@ -50,11 +50,15 @@ export class ScamAlertsController {
     status: 400,
     description: "Invalid input data",
   })
+<<<<<<< HEAD
   @ApiResponse({
     status: 429,
     description: "Rate limit exceeded – retry after 60 seconds",
   })
   scan(@Body() scanLinkDto: ScanLinkDto): ScanResultDto {
+=======
+  async scan(@Body() scanLinkDto: ScanLinkDto): Promise<ScanResultDto> {
+>>>>>>> 5787f31 (chores)
     return this.scamAlertsService.scanLink(scanLinkDto);
   }
 }
