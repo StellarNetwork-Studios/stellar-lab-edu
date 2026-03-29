@@ -58,7 +58,12 @@ export class ScamAlertsController {
   scan(@Body() scanLinkDto: ScanLinkDto): ScanResultDto {
 =======
   async scan(@Body() scanLinkDto: ScanLinkDto): Promise<ScanResultDto> {
+<<<<<<< HEAD
 >>>>>>> 5787f31 (chores)
     return this.scamAlertsService.scanLink(scanLinkDto);
+=======
+    const result = await this.scamAlertsService.scanLink(scanLinkDto);
+    return result as unknown as ScanResultDto;
+>>>>>>> b3c9507 (chores)
   }
 }
