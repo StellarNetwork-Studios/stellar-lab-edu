@@ -1,148 +1,99 @@
 import {
-  Keypair,
-  TransactionBuilder,
-  Operation,
-  Networks,
+  Account,
   Asset,
-  BASE_FEE,
+  Horizon,
+  Networks,
+  Operation,
+  TransactionBuilder,
 } from 'stellar-sdk';
-import type { PathPreviewRow } from './link-metadata';
 
-export interface PathPaymentOptions {
-  sourceAsset: string;
-  sourceAmount: string;
-  destinationAsset: string;
-  destinationAmount: string;
-  destinationAccount: string;
-  sourceAccountSequence: number;
-  memo?: string;
-  memoType?: string;
-  network?: 'public' | 'testnet';
+type AssetInput =
+  | { type: 'native' }
+  | { type: 'credit'; code: string; issuer: string };
+
+export type PathPaymentOptions = {
+  network: 'public' | 'testnet';
+  serverUrl: string;
+  sourceSecret?: string;
+  destination: string;
+  sendAsset: AssetInput;
+  destAsset: AssetInput;
+  sendMax: string;
+  destAmount: string;
+  path?: Asset[];
+};
+
+function toStellarAsset(asset: AssetInput): Asset {
+  return asset.type === 'native'
+    ? Asset.native()
+    : new Asset(asset.code, asset.issuer);
 }
 
-export interface PathPaymentRoute {
-  path: string[];
+export function calculateSlippage(
+  expectedAmount: string | number,
+  actualAmount: string | number,
+  _hopCount?: number
+) {
+  const expected = Number(expectedAmount);
+  const actual = Number(actualAmount);
+
+  if (!Number.isFinite(expected) || !Number.isFinite(actual) || expected <= 0) {
+    return 0;
+  }
+
+  const slippage = ((expected - actual) / expected) * 100;
+  return slippage < 0 ? 0 : slippage;
 }
 
-/**
- * Builds a PathPaymentStrictReceive operation.
- * This operation allows paying with any asset and having the amount received be exact.
- * Used for in-app transaction building (when user has connected passkey/wallet).
- */
-export function buildPathPaymentOperation(
-  options: PathPaymentOptions,
-): Operation.PathPaymentStrictReceive {
-  const {
-    sourceAsset,
-    sourceAmount,
-    destinationAsset,
-    destinationAmount,
-    destinationAccount,
-  } = options;
+function buildPathPaymentOperation(
+  options: PathPaymentOptions
+): ReturnType<typeof Operation.pathPaymentStrictReceive> {
+  const sendAsset = toStellarAsset(options.sendAsset);
+  const destAsset = toStellarAsset(options.destAsset);
 
-  // Create Asset objects for source and destination
-  const srcAsset = sourceAsset === 'XLM'
-    ? new Asset.native()
-    : new Asset(sourceAsset, 'GBUQWP3BOUZX34ULNQG23RQ6F4YUSXHTWYV2KY2H5YMWUT6YFPQQSTVY'); // TODO: Get correct issuer from whitelist
-
-  const dstAsset = destinationAsset === 'XLM'
-    ? new Asset.native()
-    : new Asset(destinationAsset, 'GBUQWP3BOUZX34ULNQG23RQ6F4YUSXHTWYV2KY2H5YMWUT6YFPQQSTVY'); // TODO: Get correct issuer from whitelist
-
-  return new Operation.PathPaymentStrictReceive({
-    destination: destinationAccount,
-    destAmount: destinationAmount,
-    destAsset: dstAsset,
-    sendMax: sourceAmount,
-    sendAsset: srcAsset,
-    path: [], // Path is determined by Stellar network at transaction submission time
+  return Operation.pathPaymentStrictReceive({
+    sendAsset,
+    sendMax: options.sendMax,
+    destination: options.destination,
+    destAsset,
+    destAmount: options.destAmount,
+    path: options.path ?? [],
   });
 }
 
-/**
- * Builds a full path payment transaction for submitting directly to the network.
- * This requires the user's secret key and is NOT currently used in the mobile app
- * (which delegates to external wallets). Provided for future in-app signing support.
- *
- * @throws Error if transaction building fails
- */
-export function buildPathPaymentTransaction(
-  secretKey: string,
-  userAccount: {
-    accountId: string;
-    sequenceNumber: number;
-  },
-  options: PathPaymentOptions,
-): string {
-  const keypair = Keypair.fromSecret(secretKey);
-
-  if (keypair.publicKey() !== userAccount.accountId) {
-    throw new Error('Secret key does not match user account');
-  }
-
+export async function buildPathPaymentTransaction(
+  userAccount: { accountId: string; sequenceNumber: string | number },
+  options: PathPaymentOptions
+) {
   const networkPassphrase =
-    options.network === 'public' ? Networks.PUBLIC_NETWORK : Networks.TEST_NETWORK;
+    options.network === 'public' ? Networks.PUBLIC : Networks.TESTNET;
 
-  const transaction = new TransactionBuilder(
-    {
-      accountId: userAccount.accountId,
-      sequenceNumber: String(userAccount.sequenceNumber),
-    },
-    {
-      fee: BASE_FEE,
-      networkPassphrase,
-    },
-  )
+  const sourceAccount = new Account(
+    userAccount.accountId,
+    String(userAccount.sequenceNumber)
+  );
+
+  const transaction = new TransactionBuilder(sourceAccount, {
+    fee: '100',
+    networkPassphrase,
+  })
     .addOperation(buildPathPaymentOperation(options))
-    .setTimeout(300)
+    .setTimeout(30)
     .build();
 
-  transaction.sign(keypair);
-  return transaction.toEnvelope().toXDR('base64');
+  return transaction;
 }
 
-/**
- * Formats a swap path display string for UI.
- * Example: "USDC → XLM → USD"
- */
-export function formatSwapPathDisplay(path: string[]): string {
-  if (path.length === 0) {
-    return 'Direct';
-  }
-  return path.join(' → ');
-}
+export async function submitPathPaymentTransaction(
+  signedXdr: string,
+  options: Pick<PathPaymentOptions, 'network' | 'serverUrl'>
+) {
+  const server = new Horizon.Server(options.serverUrl);
 
-/**
- * Calculates the effective exchange rate from a path payment.
- */
-export function calculateExchangeRate(
-  sourceAmount: string,
-  destinationAmount: string,
-): number {
-  const src = parseFloat(sourceAmount);
-  const dst = parseFloat(destinationAmount);
-  return dst / src;
-}
-
-/**
- * Calculates estimated slippage (spread) from a path payment.
- * Slippage occurs when intermediary hops convert between assets.
- */
-export function calculateSlippage(
-  sourceAmount: string,
-  destinationAmount: string,
-  hopCount: number,
-): number {
-  if (hopCount === 0) {
-    return 0; // No slippage on direct payments
-  }
-
-  const src = parseFloat(sourceAmount);
-  const dst = parseFloat(destinationAmount);
-  const rate = dst / src;
-
-  // Estimate base slippage: 0.1% per hop (typical Stellar spread)
-  const estimatedBaseSlippage = hopCount * 0.001;
-
-  return Math.min(estimatedBaseSlippage, 0.05); // Cap at 5%
+  return server.submitTransaction(
+    TransactionBuilder.fromXDR(
+      signedXdr,
+      options.network === 'public' ? Networks.PUBLIC : Networks.TESTNET
+    )
+  );
 }

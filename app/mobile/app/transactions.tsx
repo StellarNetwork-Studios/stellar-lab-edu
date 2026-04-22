@@ -1,17 +1,16 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React from 'react';
 import {
-    View,
-    Text,
-    StyleSheet,
-    RefreshControl,
-    TouchableOpacity,
-    ActivityIndicator,
-    ListRenderItemInfo,
-    TextInput,
-    ScrollView,
-    Pressable,
-    Alert,
+  View,
+  Text,
+  StyleSheet,
+  RefreshControl,
+  TouchableOpacity,
+  ActivityIndicator,
+  TextInput,
+  ScrollView,
+  Pressable,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FlashList } from '@shopify/flash-list';
@@ -20,659 +19,675 @@ import * as Sharing from 'expo-sharing';
 
 import TransactionItem from '../components/transaction-item';
 import { useTransactions } from '../hooks/use-transactions';
+import useOffline from '../hooks/useOffline';
+import { getCache, saveCache } from '../services/cache';
 import type { TransactionItem as TransactionItemType } from '../types/transaction';
 import { ErrorState } from '../components/resilience/error-state';
 import { EmptyState } from '../components/resilience/empty-state';
 
-/**
- * Placeholder account used when no accountId is passed via route params.
- */
 const DEMO_ACCOUNT_ID =
-    'GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN';
+  'GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN';
 
 const STATUS_FILTERS = ['All', 'Success', 'Pending'] as const;
 
 function getAssetCode(asset: string): string {
-    const colonIdx = asset.indexOf(':');
-    return colonIdx === -1 ? asset : asset.slice(0, colonIdx);
+  const colonIdx = asset.indexOf(':');
+  return colonIdx === -1 ? asset : asset.slice(0, colonIdx);
 }
 
 function parseDateInput(value: string, endOfDay: boolean): number | null {
-    const trimmed = value.trim();
-    if (!trimmed) return null;
-    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
-    if (!match) return null;
-    const year = Number(match[1]);
-    const month = Number(match[2]);
-    const day = Number(match[3]);
-    const date = new Date(year, month - 1, day);
-    if (Number.isNaN(date.getTime())) return null;
-    if (endOfDay) {
-        date.setHours(23, 59, 59, 999);
-    } else {
-        date.setHours(0, 0, 0, 0);
-    }
-    return date.getTime();
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+
+  const date = new Date(year, month - 1, day);
+  if (Number.isNaN(date.getTime())) return null;
+
+  if (endOfDay) {
+    date.setHours(23, 59, 59, 999);
+  } else {
+    date.setHours(0, 0, 0, 0);
+  }
+
+  return date.getTime();
 }
 
 function escapeCsvValue(value: string): string {
-    if (value.includes('"') || value.includes(',') || value.includes('\n')) {
-        return `"${value.replace(/"/g, '""')}"`;
-    }
-    return value;
+  if (value.includes('"') || value.includes(',') || value.includes('\n')) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
 }
 
-// ─── Loading Skeleton ────────────────────────────────────────────────────────
-
 function SkeletonRow() {
-    return (
-        <View style={skeleton.row}>
-            <View style={skeleton.circle} />
-            <View style={skeleton.lines}>
-                <View style={[skeleton.line, { width: '55%' }]} />
-                <View style={[skeleton.line, { width: '35%', marginTop: 6 }]} />
-            </View>
-            <View style={[skeleton.line, { width: 60, alignSelf: 'center' }]} />
-        </View>
-    );
+  return (
+    <View style={skeleton.row}>
+      <View style={skeleton.circle} />
+      <View style={skeleton.lines}>
+        <View style={[skeleton.line, { width: '55%' }]} />
+        <View style={[skeleton.line, { width: '35%', marginTop: 6 }]} />
+      </View>
+      <View style={[skeleton.line, { width: 60, alignSelf: 'center' }]} />
+    </View>
+  );
 }
 
 const skeleton = StyleSheet.create({
-    row: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 20,
-        paddingVertical: 14,
-        borderBottomWidth: StyleSheet.hairlineWidth,
-        borderBottomColor: '#E5E7EB',
-    },
-    circle: {
-        width: 44,
-        height: 44,
-        borderRadius: 22,
-        backgroundColor: '#E5E7EB',
-        marginRight: 14,
-    },
-    lines: { flex: 1 },
-    line: {
-        height: 12,
-        borderRadius: 6,
-        backgroundColor: '#E5E7EB',
-    },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#E5E7EB',
+  },
+  circle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#E5E7EB',
+    marginRight: 14,
+  },
+  lines: {
+    flex: 1,
+  },
+  line: {
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#E5E7EB',
+  },
 });
 
-// ─── Main Screen ─────────────────────────────────────────────────────────────
-
 export default function TransactionsScreen() {
-    const router = useRouter();
-    const params = useLocalSearchParams<{ accountId?: string }>();
-    const accountId = (params.accountId ?? DEMO_ACCOUNT_ID).trim();
+  const router = useRouter();
+  const params = useLocalSearchParams<{ accountId?: string }>();
+  const accountId = (params.accountId ?? DEMO_ACCOUNT_ID).trim();
 
-    const { transactions, loading, refreshing, error, hasMore, refresh, loadMore } =
-        useTransactions(accountId);
+  const isOffline = useOffline();
+  const [cachedTransactions, setCachedTransactions] = React.useState<TransactionItemType[]>([]);
 
-    const [searchQuery, setSearchQuery] = React.useState('');
-    const deferredQuery = React.useDeferredValue(searchQuery);
-    const [assetFilter, setAssetFilter] = React.useState<string>('All');
-    const [statusFilter, setStatusFilter] = React.useState<(typeof STATUS_FILTERS)[number]>('All');
-    const [dateFrom, setDateFrom] = React.useState('');
-    const [dateTo, setDateTo] = React.useState('');
+  const {
+    transactions,
+    loading,
+    refreshing,
+    error,
+    hasMore,
+    refresh,
+    loadMore,
+  } = useTransactions(accountId);
 
-    const assetOptions = React.useMemo(() => {
-        const codes = new Set<string>();
-        transactions.forEach(item => codes.add(getAssetCode(item.asset)));
-        return ['All', ...Array.from(codes).sort()];
-    }, [transactions]);
+  const [searchQuery, setSearchQuery] = React.useState('');
+  const deferredQuery = React.useDeferredValue(searchQuery);
+  const [assetFilter, setAssetFilter] = React.useState<string>('All');
+  const [statusFilter, setStatusFilter] =
+    React.useState<(typeof STATUS_FILTERS)[number]>('All');
+  const [dateFrom, setDateFrom] = React.useState('');
+  const [dateTo, setDateTo] = React.useState('');
 
-    const fromMs = React.useMemo(() => parseDateInput(dateFrom, false), [dateFrom]);
-    const toMs = React.useMemo(() => parseDateInput(dateTo, true), [dateTo]);
+  React.useEffect(() => {
+    const loadCachedTransactions = async () => {
+      if (!isOffline) return;
 
-    const filteredTransactions = React.useMemo(() => {
-        const query = deferredQuery.trim().toLowerCase();
+      const cached = await getCache('transactions');
+      if (Array.isArray(cached)) {
+        setCachedTransactions(cached as TransactionItemType[]);
+      } else {
+        setCachedTransactions([]);
+      }
+    };
 
-        return transactions.filter(item => {
-            if (assetFilter !== 'All' && getAssetCode(item.asset) !== assetFilter) {
-                return false;
-            }
+    loadCachedTransactions();
+  }, [isOffline]);
 
-            const itemStatus = item.status ?? 'Success';
-            if (statusFilter !== 'All' && itemStatus !== statusFilter) {
-                return false;
-            }
+  React.useEffect(() => {
+    const persistTransactions = async () => {
+      if (isOffline) return;
+      if (transactions.length === 0) return;
+      await saveCache('transactions', transactions);
+    };
 
-            const timestampMs = Date.parse(item.timestamp);
-            if (fromMs !== null && !Number.isNaN(timestampMs) && timestampMs < fromMs) {
-                return false;
-            }
-            if (toMs !== null && !Number.isNaN(timestampMs) && timestampMs > toMs) {
-                return false;
-            }
+    persistTransactions();
+  }, [transactions, isOffline]);
 
-            if (!query) return true;
+  const dataSource = isOffline ? cachedTransactions : transactions;
 
-            const memo = (item.memo ?? '').toLowerCase();
-            const source = (item.source ?? '').toLowerCase();
-            const destination = (item.destination ?? '').toLowerCase();
-            const hash = item.txHash.toLowerCase();
-            const asset = getAssetCode(item.asset).toLowerCase();
+  const assetOptions = React.useMemo(() => {
+    const codes = new Set<string>();
+    dataSource.forEach((item) => codes.add(getAssetCode(item.asset)));
+    return ['All', ...Array.from(codes).sort()];
+  }, [dataSource]);
 
-            return (
-                memo.includes(query) ||
-                source.includes(query) ||
-                destination.includes(query) ||
-                hash.includes(query) ||
-                asset.includes(query)
-            );
-        });
-    }, [transactions, deferredQuery, assetFilter, statusFilter, fromMs, toMs]);
+  const fromMs = React.useMemo(() => parseDateInput(dateFrom, false), [dateFrom]);
+  const toMs = React.useMemo(() => parseDateInput(dateTo, true), [dateTo]);
 
-    const filtersActive =
-        searchQuery.trim().length > 0 ||
-        assetFilter !== 'All' ||
-        statusFilter !== 'All' ||
-        dateFrom.trim().length > 0 ||
-        dateTo.trim().length > 0;
+  const filteredTransactions = React.useMemo(() => {
+    const query = deferredQuery.trim().toLowerCase();
 
-    const shortAccount = `${accountId.slice(0, 6)}…${accountId.slice(-4)}`;
+    return dataSource.filter((item) => {
+      if (assetFilter !== 'All' && getAssetCode(item.asset) !== assetFilter) {
+        return false;
+      }
 
-    const renderItem = ({ item }: ListRenderItemInfo<TransactionItemType>) => (
-        <TransactionItem item={item} accountId={accountId} />
-    );
+      const itemStatus = item.status ?? 'Success';
+      if (statusFilter !== 'All' && itemStatus !== statusFilter) {
+        return false;
+      }
 
-    const handleExport = React.useCallback(async () => {
-        if (filteredTransactions.length === 0) {
-            Alert.alert('Nothing to export', 'There are no transactions matching your filters.');
-            return;
-        }
+      const timestampMs = Date.parse(item.timestamp);
+      if (fromMs !== null && !Number.isNaN(timestampMs) && timestampMs < fromMs) {
+        return false;
+      }
+      if (toMs !== null && !Number.isNaN(timestampMs) && timestampMs > toMs) {
+        return false;
+      }
 
-        const headers = [
-            'timestamp',
-            'amount',
-            'asset',
-            'memo',
-            'txHash',
-            'pagingToken',
-            'source',
-            'destination',
-            'status',
-        ];
+      if (!query) return true;
 
-        const rows = filteredTransactions.map(item => [
-            item.timestamp,
-            item.amount,
-            item.asset,
-            item.memo ?? '',
-            item.txHash,
-            item.pagingToken,
-            item.source ?? '',
-            item.destination ?? '',
-            item.status ?? 'Success',
-        ]);
+      const memo = (item.memo ?? '').toLowerCase();
+      const source = (item.source ?? '').toLowerCase();
+      const destination = (item.destination ?? '').toLowerCase();
+      const hash = item.txHash.toLowerCase();
+      const asset = getAssetCode(item.asset).toLowerCase();
 
-        const csv = [headers, ...rows]
-            .map(row => row.map(cell => escapeCsvValue(String(cell))).join(','))
-            .join('\n');
+      return (
+        memo.includes(query) ||
+        source.includes(query) ||
+        destination.includes(query) ||
+        hash.includes(query) ||
+        asset.includes(query)
+      );
+    });
+  }, [dataSource, deferredQuery, assetFilter, statusFilter, fromMs, toMs]);
 
-        try {
-            const fileName = `quickex-transactions-${new Date().toISOString().slice(0, 10)}.csv`;
-            const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
+  const filtersActive =
+    searchQuery.trim().length > 0 ||
+    assetFilter !== 'All' ||
+    statusFilter !== 'All' ||
+    dateFrom.trim().length > 0 ||
+    dateTo.trim().length > 0;
 
-            await FileSystem.writeAsStringAsync(fileUri, csv, {
-                encoding: FileSystem.EncodingType.UTF8,
-            });
+  const shortAccount = `${accountId.slice(0, 6)}…${accountId.slice(-4)}`;
 
-            const canShare = await Sharing.isAvailableAsync();
-            if (!canShare) {
-                Alert.alert(
-                    'Sharing not available',
-                    'Sharing is not supported on this device.',
-                );
-                return;
-            }
+  const handleExport = React.useCallback(async () => {
+    if (isOffline) {
+      Alert.alert(
+        'Offline mode',
+        'Export is disabled while offline. Please reconnect and try again.'
+      );
+      return;
+    }
 
-            await Sharing.shareAsync(fileUri, {
-                mimeType: 'text/csv',
-                dialogTitle: 'Export Transactions',
-                UTI: 'public.comma-separated-values-text',
-            });
-        } catch (err) {
-            const message = err instanceof Error ? err.message : 'Unable to export CSV.';
-            Alert.alert('Export failed', message);
-        }
-    }, [filteredTransactions]);
+    if (filteredTransactions.length === 0) {
+      Alert.alert('Nothing to export', 'There are no transactions matching your filters.');
+      return;
+    }
 
-    const handleClearFilters = React.useCallback(() => {
-        setSearchQuery('');
-        setAssetFilter('All');
-        setStatusFilter('All');
-        setDateFrom('');
-        setDateTo('');
-    }, []);
+    const headers = [
+      'timestamp',
+      'amount',
+      'asset',
+      'memo',
+      'txHash',
+      'pagingToken',
+      'source',
+      'destination',
+      'status',
+    ];
 
-    const ListHeader = (
-        <View style={styles.listHeader}>
-            <View style={styles.headerRow}>
-                <Text style={styles.accountPill}>{shortAccount}</Text>
-                <Text style={styles.countLabel}>
-                    {filteredTransactions.length} of {transactions.length}
-                </Text>
-            </View>
+    const rows = filteredTransactions.map((item) => [
+      item.timestamp,
+      item.amount,
+      item.asset,
+      item.memo ?? '',
+      item.txHash,
+      item.pagingToken,
+      item.source ?? '',
+      item.destination ?? '',
+      item.status ?? 'Success',
+    ]);
 
-            <View style={styles.searchWrap}>
-                <TextInput
-                    value={searchQuery}
-                    onChangeText={setSearchQuery}
-                    placeholder="Search memo, address, or hash"
-                    placeholderTextColor="#9CA3AF"
-                    style={styles.searchInput}
-                    returnKeyType="search"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    clearButtonMode="while-editing"
-                />
-            </View>
+    const csv = [headers, ...rows]
+      .map((row) => row.map((cell) => escapeCsvValue(String(cell))).join(','))
+      .join('\n');
 
-            <View style={styles.filterSection}>
-                <Text style={styles.filterLabel}>Asset Type</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                    <View style={styles.chipRow}>
-                        {assetOptions.map(option => {
-                            const isActive = option === assetFilter;
-                            return (
-                                <Pressable
-                                    key={option}
-                                    onPress={() => setAssetFilter(option)}
-                                    style={[styles.chip, isActive && styles.chipActive]}
-                                >
-                                    <Text
-                                        style={[
-                                            styles.chipText,
-                                            isActive && styles.chipTextActive,
-                                        ]}
-                                    >
-                                        {option}
-                                    </Text>
-                                </Pressable>
-                            );
-                        })}
-                    </View>
-                </ScrollView>
-            </View>
+    try {
+      const fileName = `quickex-transactions-${new Date().toISOString().slice(0, 10)}.csv`;
+      const baseUri =
+        FileSystem.Paths?.cache?.uri ?? FileSystem.Paths?.document?.uri ?? '';
+      const normalizedBaseUri = baseUri.endsWith('/') ? baseUri : `${baseUri}/`;
+      const fileUri = `${normalizedBaseUri}${fileName}`;
 
-            <View style={styles.filterSection}>
-                <Text style={styles.filterLabel}>Status</Text>
-                <View style={styles.chipRow}>
-                    {STATUS_FILTERS.map(option => {
-                        const isActive = option === statusFilter;
-                        return (
-                            <Pressable
-                                key={option}
-                                onPress={() => setStatusFilter(option)}
-                                style={[styles.chip, isActive && styles.chipActive]}
-                            >
-                                <Text
-                                    style={[
-                                        styles.chipText,
-                                        isActive && styles.chipTextActive,
-                                    ]}
-                                >
-                                    {option}
-                                </Text>
-                            </Pressable>
-                        );
-                    })}
-                </View>
-            </View>
+      await FileSystem.writeAsStringAsync(fileUri, csv, {
+        encoding: 'utf8' as any,
+      });
 
-            <View style={styles.filterSection}>
-                <Text style={styles.filterLabel}>Date Range</Text>
-                <View style={styles.dateRow}>
-                    <View style={styles.dateInputWrap}>
-                        <Text style={styles.dateLabel}>From</Text>
-                        <TextInput
-                            value={dateFrom}
-                            onChangeText={setDateFrom}
-                            placeholder="YYYY-MM-DD"
-                            placeholderTextColor="#9CA3AF"
-                            style={styles.dateInput}
-                            autoCapitalize="none"
-                            autoCorrect={false}
-                        />
-                    </View>
-                    <View style={styles.dateInputWrap}>
-                        <Text style={styles.dateLabel}>To</Text>
-                        <TextInput
-                            value={dateTo}
-                            onChangeText={setDateTo}
-                            placeholder="YYYY-MM-DD"
-                            placeholderTextColor="#9CA3AF"
-                            style={styles.dateInput}
-                            autoCapitalize="none"
-                            autoCorrect={false}
-                        />
-                    </View>
-                </View>
-                {(dateFrom && fromMs === null) || (dateTo && toMs === null) ? (
-                    <Text style={styles.dateHint}>
-                        Use the format YYYY-MM-DD (e.g. 2026-03-01).
-                    </Text>
-                ) : null}
-            </View>
+      const canShare = await Sharing.isAvailableAsync();
+      if (!canShare) {
+        Alert.alert('Sharing not available', 'Sharing is not supported on this device.');
+        return;
+      }
 
-            <View style={styles.actionRow}>
-                {filtersActive ? (
-                    <Pressable onPress={handleClearFilters} style={styles.ghostButton}>
-                        <Text style={styles.ghostButtonText}>Clear Filters</Text>
-                    </Pressable>
-                ) : (
-                    <View />
-                )}
-                <Pressable onPress={handleExport} style={styles.exportButton}>
-                    <Text style={styles.exportButtonText}>Export to CSV</Text>
-                </Pressable>
-            </View>
-        </View>
-    );
+      await Sharing.shareAsync(fileUri, {
+        mimeType: 'text/csv',
+        dialogTitle: 'Export Transactions',
+        UTI: 'public.comma-separated-values-text',
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to export CSV.';
+      Alert.alert('Export failed', message);
+    }
+  }, [filteredTransactions, isOffline]);
 
-    const ListEmpty = loading ? (
-        <View>
-            {[...Array(6)].map((_, i) => (
-                <SkeletonRow key={i} />
-            ))}
-        </View>
-    ) : error ? (
-        <ErrorState
-            message={error}
-            onRetry={refresh}
+  const handleClearFilters = React.useCallback(() => {
+    setSearchQuery('');
+    setAssetFilter('All');
+    setStatusFilter('All');
+    setDateFrom('');
+    setDateTo('');
+  }, []);
+
+  const listHeader = (
+    <View style={styles.listHeader}>
+      <View style={styles.headerRow}>
+        <Text style={styles.accountPill}>{shortAccount}</Text>
+        <Text style={styles.countLabel}>
+          {filteredTransactions.length} of {dataSource.length}
+        </Text>
+      </View>
+
+      <View style={styles.searchWrap}>
+        <TextInput
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder="Search memo, address, or hash"
+          placeholderTextColor="#9CA3AF"
+          style={styles.searchInput}
+          returnKeyType="search"
+          autoCapitalize="none"
+          autoCorrect={false}
+          clearButtonMode="while-editing"
         />
-    ) : filtersActive ? (
-        <EmptyState
-            title="No matching transactions"
-            message="Try adjusting your filters or search terms."
-            icon="filter-outline"
-        />
-    ) : (
-        <EmptyState
-            title="No transactions yet"
-            message="Payments sent or received to this account will appear here."
-            icon="receipt-outline"
-        />
-    );
+      </View>
 
-    const ListFooter = hasMore ? (
-        <View style={styles.footer}>
-            <ActivityIndicator size="small" color="#6B7280" />
-        </View>
-    ) : null;
-
-    return (
-        <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
-            {/* ── Header ── */}
-            <View style={styles.header}>
-                <TouchableOpacity
-                    onPress={() => router.back()}
-                    style={styles.backBtn}
-                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+      <View style={styles.filterSection}>
+        <Text style={styles.filterLabel}>Asset Type</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+          <View style={styles.chipRow}>
+            {assetOptions.map((option) => {
+              const active = option === assetFilter;
+              return (
+                <Pressable
+                  key={option}
+                  onPress={() => setAssetFilter(option)}
+                  style={[styles.chip, active && styles.chipActive]}
                 >
-                    <Text style={styles.backChevron}>‹</Text>
-                </TouchableOpacity>
-                <Text style={styles.headerTitle}>Transaction History</Text>
-                <View style={styles.backBtn} />
-            </View>
+                  <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                    {option}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </ScrollView>
+      </View>
 
-            {/* ── Transaction List ── */}
-            <FlashList<TransactionItemType>
-                data={filteredTransactions}
-                keyExtractor={item => item.pagingToken}
-                renderItem={renderItem}
-                ListHeaderComponent={ListHeader}
-                ListEmptyComponent={ListEmpty}
-                ListFooterComponent={ListFooter}
-                refreshControl={
-                    <RefreshControl
-                        refreshing={refreshing}
-                        onRefresh={refresh}
-                        tintColor="#6B7280"
-                    />
-                }
-                onEndReached={loadMore}
-                onEndReachedThreshold={0.8}
-                estimatedItemSize={88}
-                contentContainerStyle={
-                    (filteredTransactions.length === 0 || error) && !loading
-                        ? styles.emptyFill
-                        : undefined
-                }
-                showsVerticalScrollIndicator={false}
+      <View style={styles.filterSection}>
+        <Text style={styles.filterLabel}>Status</Text>
+        <View style={styles.chipRow}>
+          {STATUS_FILTERS.map((option) => {
+            const active = option === statusFilter;
+            return (
+              <Pressable
+                key={option}
+                onPress={() => setStatusFilter(option)}
+                style={[styles.chip, active && styles.chipActive]}
+              >
+                <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                  {option}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
+      <View style={styles.filterSection}>
+        <Text style={styles.filterLabel}>Date Range</Text>
+        <View style={styles.dateRow}>
+          <View style={styles.dateInputWrap}>
+            <Text style={styles.dateLabel}>From</Text>
+            <TextInput
+              value={dateFrom}
+              onChangeText={setDateFrom}
+              placeholder="YYYY-MM-DD"
+              placeholderTextColor="#9CA3AF"
+              style={styles.dateInput}
+              autoCapitalize="none"
+              autoCorrect={false}
             />
-        </SafeAreaView>
-    );
+          </View>
+
+          <View style={styles.dateInputWrap}>
+            <Text style={styles.dateLabel}>To</Text>
+            <TextInput
+              value={dateTo}
+              onChangeText={setDateTo}
+              placeholder="YYYY-MM-DD"
+              placeholderTextColor="#9CA3AF"
+              style={styles.dateInput}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+        </View>
+
+        {(dateFrom && fromMs === null) || (dateTo && toMs === null) ? (
+          <Text style={styles.dateHint}>
+            Use the format YYYY-MM-DD (e.g. 2026-03-01).
+          </Text>
+        ) : null}
+      </View>
+
+      <View style={styles.actionRow}>
+        {filtersActive ? (
+          <Pressable onPress={handleClearFilters} style={styles.ghostButton}>
+            <Text style={styles.ghostButtonText}>Clear Filters</Text>
+          </Pressable>
+        ) : (
+          <View />
+        )}
+
+        <View style={styles.exportWrap}>
+          <Pressable
+            onPress={handleExport}
+            style={[styles.exportButton, isOffline && styles.exportButtonDisabled]}
+            disabled={isOffline}
+          >
+            <Text style={styles.exportButtonText}>Export to CSV</Text>
+          </Pressable>
+
+          {isOffline ? (
+            <Text style={styles.offlineHint}>Offline mode: export disabled</Text>
+          ) : null}
+        </View>
+      </View>
+    </View>
+  );
+
+  const listEmpty = loading && !isOffline ? (
+    <View>
+      {[...Array(6)].map((_, i) => (
+        <SkeletonRow key={i} />
+      ))}
+    </View>
+  ) : error && !isOffline ? (
+    <ErrorState message={error} onRetry={refresh} />
+  ) : filtersActive ? (
+    <EmptyState
+      title="No matching transactions"
+      message="Try adjusting your filters or search terms."
+      icon="filter-outline"
+    />
+  ) : (
+    <EmptyState
+      title="No transactions yet"
+      message="Payments sent or received to this account will appear here."
+      icon="receipt-outline"
+    />
+  );
+
+  const listFooter = hasMore && !isOffline ? (
+    <View style={styles.footer}>
+      <ActivityIndicator size="small" color="#6B7280" />
+    </View>
+  ) : null;
+
+  return (
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+      {isOffline ? (
+        <View style={styles.offlineBanner}>
+          <Text style={styles.offlineBannerText}>
+            You are offline. Showing cached data.
+          </Text>
+        </View>
+      ) : null}
+
+      <View style={styles.header}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={styles.backBtn}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
+          <Text style={styles.backChevron}>‹</Text>
+        </TouchableOpacity>
+
+        <Text style={styles.headerTitle}>Transaction History</Text>
+        <View style={styles.backBtn} />
+      </View>
+
+      <FlashList<TransactionItemType>
+        data={filteredTransactions}
+        keyExtractor={(item) => item.pagingToken}
+        renderItem={({ item }) => <TransactionItem item={item} accountId={accountId} />}
+        ListHeaderComponent={listHeader}
+        ListEmptyComponent={listEmpty}
+        ListFooterComponent={listFooter}
+        refreshControl={
+          <RefreshControl
+            refreshing={isOffline ? false : refreshing}
+            onRefresh={refresh}
+            enabled={!isOffline}
+            tintColor="#6B7280"
+          />
+        }
+        onEndReached={isOffline ? undefined : loadMore}
+        onEndReachedThreshold={0.8}
+        estimatedItemSize={88}
+        contentContainerStyle={
+          (filteredTransactions.length === 0 || (error && !isOffline)) && !loading
+            ? { paddingBottom: 24 }
+            : undefined
+        }
+        showsVerticalScrollIndicator={false}
+      />
+    </SafeAreaView>
+  );
 }
 
-// ─── Styles ──────────────────────────────────────────────────────────────────
-
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#F9FAFB',
-    },
+  container: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+  },
 
-    // Header
-    header: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 16,
-        paddingVertical: 12,
-        backgroundColor: '#fff',
-        borderBottomWidth: StyleSheet.hairlineWidth,
-        borderBottomColor: '#E5E7EB',
-    },
-    headerTitle: {
-        fontSize: 17,
-        fontWeight: '600',
-        color: '#111827',
-    },
-    backBtn: {
-        width: 36,
-        alignItems: 'center',
-    },
-    backChevron: {
-        fontSize: 28,
-        color: '#111827',
-        lineHeight: 32,
-    },
+  offlineBanner: {
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#FCD34D',
+  },
+  offlineBannerText: {
+    color: '#92400E',
+    fontWeight: '600',
+    fontSize: 13,
+    textAlign: 'center',
+  },
 
-    // Error banner
-    errorBanner: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: '#FEF2F2',
-        borderBottomWidth: 1,
-        borderBottomColor: '#FECACA',
-        paddingHorizontal: 16,
-        paddingVertical: 10,
-        gap: 12,
-    },
-    errorText: {
-        flex: 1,
-        fontSize: 13,
-        color: '#991B1B',
-        lineHeight: 18,
-    },
-    retryBtn: {
-        backgroundColor: '#DC2626',
-        borderRadius: 6,
-        paddingHorizontal: 14,
-        paddingVertical: 6,
-    },
-    retryText: {
-        color: '#fff',
-        fontSize: 13,
-        fontWeight: '600',
-    },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#fff',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#E5E7EB',
+  },
+  headerTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  backBtn: {
+    width: 36,
+    alignItems: 'center',
+  },
+  backChevron: {
+    fontSize: 28,
+    color: '#111827',
+    lineHeight: 32,
+  },
 
-    // List header
-    listHeader: {
-        paddingHorizontal: 20,
-        paddingTop: 16,
-        paddingBottom: 8,
-        gap: 14,
-    },
-    headerRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-    },
-    accountPill: {
-        alignSelf: 'flex-start',
-        backgroundColor: '#E5E7EB',
-        color: '#374151',
-        fontSize: 12,
-        fontWeight: '600',
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: 99,
-        overflow: 'hidden',
-        fontFamily: 'monospace',
-    },
-    countLabel: {
-        fontSize: 12,
-        color: '#6B7280',
-        fontWeight: '600',
-    },
-    searchWrap: {
-        backgroundColor: '#fff',
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: '#E5E7EB',
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-    },
-    searchInput: {
-        fontSize: 14,
-        color: '#111827',
-    },
-    filterSection: {
-        gap: 8,
-    },
-    filterLabel: {
-        fontSize: 12,
-        fontWeight: '700',
-        color: '#374151',
-        textTransform: 'uppercase',
-        letterSpacing: 0.6,
-    },
-    chipRow: {
-        flexDirection: 'row',
-        gap: 8,
-    },
-    chip: {
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 999,
-        borderWidth: 1,
-        borderColor: '#E5E7EB',
-        backgroundColor: '#fff',
-    },
-    chipActive: {
-        backgroundColor: '#111827',
-        borderColor: '#111827',
-    },
-    chipText: {
-        fontSize: 12,
-        color: '#374151',
-        fontWeight: '600',
-    },
-    chipTextActive: {
-        color: '#fff',
-    },
-    dateRow: {
-        flexDirection: 'row',
-        gap: 12,
-    },
-    dateInputWrap: {
-        flex: 1,
-        gap: 6,
-    },
-    dateLabel: {
-        fontSize: 12,
-        color: '#6B7280',
-        fontWeight: '600',
-    },
-    dateInput: {
-        backgroundColor: '#fff',
-        borderRadius: 10,
-        borderWidth: 1,
-        borderColor: '#E5E7EB',
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        fontSize: 13,
-        color: '#111827',
-    },
-    dateHint: {
-        fontSize: 11,
-        color: '#9CA3AF',
-    },
-    actionRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingBottom: 6,
-    },
-    ghostButton: {
-        paddingHorizontal: 10,
-        paddingVertical: 8,
-    },
-    ghostButtonText: {
-        fontSize: 12,
-        color: '#6B7280',
-        fontWeight: '600',
-    },
-    exportButton: {
-        backgroundColor: '#111827',
-        paddingHorizontal: 16,
-        paddingVertical: 10,
-        borderRadius: 10,
-    },
-    exportButtonText: {
-        color: '#fff',
-        fontSize: 12,
-        fontWeight: '700',
-    },
+  listHeader: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 8,
+    gap: 14,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  accountPill: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#E5E7EB',
+    color: '#374151',
+    fontSize: 12,
+    fontWeight: '600',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 99,
+    overflow: 'hidden',
+    fontFamily: 'monospace',
+  },
+  countLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '600',
+  },
+  searchWrap: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  searchInput: {
+    fontSize: 14,
+    color: '#111827',
+  },
+  filterSection: {
+    gap: 8,
+  },
+  filterLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#374151',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  chipRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  chip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#fff',
+  },
+  chipActive: {
+    backgroundColor: '#111827',
+    borderColor: '#111827',
+  },
+  chipText: {
+    fontSize: 12,
+    color: '#374151',
+    fontWeight: '600',
+  },
+  chipTextActive: {
+    color: '#fff',
+  },
+  dateRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  dateInputWrap: {
+    flex: 1,
+    gap: 6,
+  },
+  dateLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '600',
+  },
+  dateInput: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 13,
+    color: '#111827',
+  },
+  dateHint: {
+    fontSize: 11,
+    color: '#9CA3AF',
+  },
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    paddingBottom: 6,
+  },
+  ghostButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  ghostButtonText: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '600',
+  },
+  exportWrap: {
+    alignItems: 'flex-end',
+    gap: 4,
+  },
+  exportButton: {
+    backgroundColor: '#111827',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  exportButtonDisabled: {
+    opacity: 0.5,
+  },
+  exportButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  offlineHint: {
+    color: '#DC2626',
+    fontSize: 12,
+    fontWeight: '500',
+  },
 
-    // Empty state
-    emptyFill: {
-        flexGrow: 1,
-    },
-    emptyContainer: {
-        flex: 1,
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingHorizontal: 40,
-        paddingTop: 80,
-    },
-    emptyIcon: {
-        fontSize: 48,
-        marginBottom: 16,
-    },
-    emptyTitle: {
-        fontSize: 18,
-        fontWeight: '700',
-        color: '#111827',
-        marginBottom: 8,
-        textAlign: 'center',
-    },
-    emptySubtitle: {
-        fontSize: 14,
-        color: '#6B7280',
-        textAlign: 'center',
-        lineHeight: 20,
-    },
-
-    // Footer (load-more indicator)
-    footer: {
-        paddingVertical: 20,
-        alignItems: 'center',
-    },
+  footer: {
+    paddingVertical: 20,
+    alignItems: 'center',
+  },
 });
