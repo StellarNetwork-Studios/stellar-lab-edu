@@ -32,6 +32,7 @@ import { ApiKeysModule } from "./api-keys/api-keys.module";
 import { MarketplaceModule } from "./marketplace/marketplace.module";
 import { SentryModule } from "./sentry";
 import { FiatRampsModule } from "./fiat-ramps/fiat-ramps.module";
+import { InvoicesModule } from "./invoices/invoices.module";
 
 type AppImport =
   | Type<unknown>
@@ -70,6 +71,7 @@ type AppImport =
       ApiKeysModule,
       MarketplaceModule,
       FiatRampsModule,
+      InvoicesModule,
     ];
 
     // In development, if SUPABASE_URL points to a localhost placeholder (i.e. you don't
