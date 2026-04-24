@@ -17,6 +17,7 @@ export class ApiKeysRepository {
     scopes: ApiKeyScope[];
     owner_id: string | null;
     monthly_quota: number;
+    quota_reset_at: string;
   }): Promise<ApiKeyRecord> {
     const { data: row, error } = await this.client
       .from('api_keys')
@@ -62,7 +63,7 @@ export class ApiKeysRepository {
     const { data, error } = await this.client
       .from('api_keys')
       .select('*')
-      .eq('key_prefix', prefix)
+      .or(`key_prefix.eq.${prefix},previous_key_prefix.eq.${prefix}`)
       .eq('is_active', true);
 
     if (error) throw error;
@@ -80,14 +81,18 @@ export class ApiKeysRepository {
 
   async updateKey(
     id: string,
-    data: { key_hash: string; key_prefix: string },
+    data: {
+      key_hash: string;
+      key_prefix: string;
+      previous_key_hash?: string | null;
+      previous_key_prefix?: string | null;
+      rotated_at?: string | null;
+    },
   ): Promise<ApiKeyRecord> {
     const { data: row, error } = await this.client
       .from('api_keys')
       .update({
         ...data,
-        request_count: 0,
-        last_used_at: null,
         updated_at: new Date().toISOString(),
       })
       .eq('id', id)
@@ -102,6 +107,18 @@ export class ApiKeysRepository {
     const { error } = await this.client.rpc('increment_api_key_usage', {
       key_id: id,
     });
+    if (error) throw error;
+  }
+
+  async resetQuota(id: string, nextReset: string): Promise<void> {
+    const { error } = await this.client
+      .from('api_keys')
+      .update({
+        request_count: 0,
+        quota_reset_at: nextReset,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id);
     if (error) throw error;
   }
 

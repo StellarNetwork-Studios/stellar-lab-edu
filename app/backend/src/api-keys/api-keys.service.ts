@@ -17,6 +17,7 @@ import {
 const BCRYPT_ROUNDS = 10;
 const DEFAULT_QUOTA = 10_000;
 const KEY_PREFIX_LENGTH = 8; // chars used for prefix display / lookup
+const ROTATION_GRACE_PERIOD_MS = 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class ApiKeysService {
@@ -40,6 +41,7 @@ export class ApiKeysService {
       scopes: dto.scopes,
       owner_id: dto.owner_id ?? null,
       monthly_quota: DEFAULT_QUOTA,
+      quota_reset_at: this.getNextQuotaReset(),
     });
 
     this.logger.log(`API key created: id=${record.id} name="${record.name}"`);
@@ -71,6 +73,9 @@ export class ApiKeysService {
     const updated = await this.repo.updateKey(id, {
       key_hash: hash,
       key_prefix: prefix,
+      previous_key_hash: record.key_hash,
+      previous_key_prefix: record.key_prefix,
+      rotated_at: new Date().toISOString(),
     });
 
     this.logger.log(`API key rotated: id=${id}`);
@@ -93,8 +98,25 @@ export class ApiKeysService {
     const candidates = await this.repo.findByPrefix(prefix);
 
     for (const record of candidates) {
-      const match = await bcrypt.compare(rawKey, record.key_hash);
-      if (match) {
+      let isMatch = false;
+
+      // 1. Check primary key
+      if (record.key_prefix === prefix) {
+        isMatch = await bcrypt.compare(rawKey, record.key_hash);
+      }
+
+      // 2. Check rotated key if within grace period
+      if (!isMatch && record.previous_key_prefix === prefix && record.rotated_at) {
+        const graceExpiry = new Date(record.rotated_at).getTime() + ROTATION_GRACE_PERIOD_MS;
+        if (Date.now() < graceExpiry && record.previous_key_hash) {
+          isMatch = await bcrypt.compare(rawKey, record.previous_key_hash);
+        }
+      }
+
+      if (isMatch) {
+        // Check for monthly quota reset
+        await this.handleQuotaReset(record);
+
         // Fire-and-forget usage increment — don't block the request
         this.repo
           .incrementUsage(record.id)
@@ -123,6 +145,24 @@ export class ApiKeysService {
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
+
+  private async handleQuotaReset(record: ApiKeyRecord): Promise<void> {
+    if (new Date() > new Date(record.quota_reset_at)) {
+      const nextReset = this.getNextQuotaReset();
+      await this.repo.resetQuota(record.id, nextReset).catch((err) =>
+        this.logger.warn(`Failed to reset quota for ${record.id}: ${err}`),
+      );
+      // Update local copy for immediate validation
+      record.request_count = 0;
+      record.quota_reset_at = nextReset;
+    }
+  }
+
+  private getNextQuotaReset(): string {
+    const d = new Date();
+    d.setMonth(d.getMonth() + 1);
+    return d.toISOString();
+  }
 
   private generateRawKey(): string {
     const bytes = crypto.randomBytes(24).toString('hex');

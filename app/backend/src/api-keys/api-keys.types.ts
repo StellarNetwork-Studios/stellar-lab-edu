@@ -18,6 +18,10 @@ export interface ApiKeyRecord {
   request_count: number;
   monthly_quota: number;
   last_used_at: string | null;
+  rotated_at: string | null;
+  previous_key_hash: string | null;
+  previous_key_prefix: string | null;
+  quota_reset_at: string;
   created_at: string;
   updated_at: string;
 }
