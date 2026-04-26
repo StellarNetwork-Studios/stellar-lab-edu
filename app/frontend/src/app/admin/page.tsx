@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { getQuickexApiBase } from "@/lib/api";
 
 type FeatureFlag = {
   key: string;
@@ -13,7 +14,7 @@ type ServiceHealth = {
   name: string;
   status: "healthy" | "degraded" | "down";
   latencyMs: number;
-  lastCheck: string;
+  detail: string;
 };
 
 type OpsEvent = {
@@ -21,10 +22,28 @@ type OpsEvent = {
   event: string;
   actor: string;
   severity: "info" | "warning" | "critical";
-  timestamp: string;
+  timestampIso: string;
 };
 
-const INITIAL_FLAGS: FeatureFlag[] = [
+type HealthResponse = {
+  status: string;
+  version: string;
+  uptime: number;
+};
+
+type ReadyResponse = {
+  ready: boolean;
+  checks: Array<{
+    name: string;
+    status: "up" | "down";
+    latency?: string;
+    details?: string[];
+  }>;
+};
+
+const FLAGS_STORAGE_KEY = "admin-console-flags-v1";
+
+const DEFAULT_FLAGS: FeatureFlag[] = [
   {
     key: "signed_action_prompts",
     description: "Require explicit signed intent for high-risk actions.",
@@ -45,48 +64,36 @@ const INITIAL_FLAGS: FeatureFlag[] = [
   },
 ];
 
-const SERVICE_HEALTH: ServiceHealth[] = [
-  {
-    name: "API Gateway",
-    status: "healthy",
-    latencyMs: 82,
-    lastCheck: "20s ago",
-  },
-  {
-    name: "Stellar Horizon",
-    status: "degraded",
-    latencyMs: 420,
-    lastCheck: "35s ago",
-  },
-  {
-    name: "Notification Worker",
-    status: "healthy",
-    latencyMs: 64,
-    lastCheck: "18s ago",
-  },
-];
-
-const OPS_EVENTS: OpsEvent[] = [
+const INITIAL_OPS_EVENTS: OpsEvent[] = [
   {
     id: "OPS-1083",
     event: "Feature flag updated: signed_action_prompts",
     actor: "menjay7",
     severity: "info",
-    timestamp: "2 min ago",
+    timestampIso: new Date(Date.now() - 2 * 60_000).toISOString(),
   },
   {
     id: "OPS-1082",
     event: "Latency spike detected on Stellar Horizon",
     actor: "health-bot",
     severity: "warning",
-    timestamp: "9 min ago",
+    timestampIso: new Date(Date.now() - 9 * 60_000).toISOString(),
   },
   {
     id: "OPS-1081",
     event: "Payment retries crossed threshold on testnet",
     actor: "ops-bot",
     severity: "critical",
-    timestamp: "17 min ago",
+    timestampIso: new Date(Date.now() - 17 * 60_000).toISOString(),
+  },
+];
+
+const FALLBACK_SERVICES: ServiceHealth[] = [
+  {
+    name: "api",
+    status: "degraded",
+    latencyMs: 0,
+    detail: "Waiting for health checks...",
   },
 ];
 
@@ -103,19 +110,138 @@ function severityPillClass(severity: OpsEvent["severity"]) {
 }
 
 export default function AdminConsolePage() {
-  const [flags, setFlags] = useState<FeatureFlag[]>(INITIAL_FLAGS);
+  const [flags, setFlags] = useState<FeatureFlag[]>(DEFAULT_FLAGS);
+  const [services, setServices] = useState<ServiceHealth[]>(FALLBACK_SERVICES);
+  const [opsEvents, setOpsEvents] = useState<OpsEvent[]>(INITIAL_OPS_EVENTS);
+  const [healthInfo, setHealthInfo] = useState<HealthResponse | null>(null);
+  const [healthLoading, setHealthLoading] = useState(true);
+  const [healthError, setHealthError] = useState<string | null>(null);
 
   const enabledFlagsCount = useMemo(
     () => flags.filter((flag) => flag.enabled).length,
     [flags],
   );
 
+  const apiBase = useMemo(() => getQuickexApiBase(), []);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(FLAGS_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as FeatureFlag[];
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        setFlags(parsed);
+      }
+    } catch {
+      // Ignore malformed local storage data.
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(FLAGS_STORAGE_KEY, JSON.stringify(flags));
+  }, [flags]);
+
+  const pushOpsEvent = (event: Omit<OpsEvent, "id" | "timestampIso">) => {
+    setOpsEvents((prev) => [
+      {
+        id: `OPS-${Math.floor(Math.random() * 9000) + 1000}`,
+        timestampIso: new Date().toISOString(),
+        ...event,
+      },
+      ...prev,
+    ]);
+  };
+
+  const loadHealth = async () => {
+    setHealthLoading(true);
+    setHealthError(null);
+    try {
+      const [healthRes, readyRes] = await Promise.all([
+        fetch(`${apiBase}/health`),
+        fetch(`${apiBase}/ready`),
+      ]);
+
+      if (!healthRes.ok) {
+        throw new Error(`/health failed (${healthRes.status})`);
+      }
+
+      const healthJson = (await healthRes.json()) as HealthResponse;
+      setHealthInfo(healthJson);
+
+      let serviceRows: ServiceHealth[] = [
+        {
+          name: "api",
+          status: healthJson.status === "ok" ? "healthy" : "degraded",
+          latencyMs: 0,
+          detail: `Version ${healthJson.version} | Uptime ${healthJson.uptime}s`,
+        },
+      ];
+
+      if (readyRes.ok || readyRes.status === 503) {
+        const readyJson = (await readyRes.json()) as ReadyResponse;
+        const dependencyRows = readyJson.checks.map((check) => {
+          const parsedLatency = Number((check.latency ?? "").replace("ms", ""));
+          return {
+            name: check.name,
+            status:
+              check.status === "up"
+                ? "healthy"
+                : check.name === "environment"
+                  ? "degraded"
+                  : "down",
+            latencyMs: Number.isFinite(parsedLatency) ? parsedLatency : 0,
+            detail: check.details?.join(" | ") ?? "No extra details",
+          } as ServiceHealth;
+        });
+
+        serviceRows = [...serviceRows, ...dependencyRows];
+        if (!readyJson.ready) {
+          pushOpsEvent({
+            event: "Readiness check failed",
+            actor: "health-bot",
+            severity: "warning",
+          });
+        }
+      }
+
+      setServices(serviceRows);
+    } catch {
+      setHealthError("Unable to load backend health data.");
+      setServices(FALLBACK_SERVICES);
+      pushOpsEvent({
+        event: "Health checks unavailable",
+        actor: "health-bot",
+        severity: "critical",
+      });
+    } finally {
+      setHealthLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadHealth();
+    const interval = setInterval(() => {
+      void loadHealth();
+    }, 30_000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiBase]);
+
   const toggleFlag = (key: string) => {
-    setFlags((prev) =>
-      prev.map((flag) =>
+    setFlags((prev) => {
+      const next = prev.map((flag) =>
         flag.key === key ? { ...flag, enabled: !flag.enabled } : flag,
-      ),
-    );
+      );
+      const changed = next.find((item) => item.key === key);
+      if (changed) {
+        pushOpsEvent({
+          event: `Feature flag ${changed.enabled ? "enabled" : "disabled"}: ${changed.key}`,
+          actor: "admin-user",
+          severity: "info",
+        });
+      }
+      return next;
+    });
   };
 
   return (
@@ -147,8 +273,8 @@ export default function AdminConsolePage() {
             Services Healthy
           </p>
           <p className="text-3xl font-black">
-            {SERVICE_HEALTH.filter((svc) => svc.status === "healthy").length}/
-            {SERVICE_HEALTH.length}
+            {services.filter((svc) => svc.status === "healthy").length}/
+            {services.length}
           </p>
           <p className="text-xs text-neutral-500">Current checks</p>
         </div>
@@ -157,7 +283,7 @@ export default function AdminConsolePage() {
             Open Critical Ops
           </p>
           <p className="text-3xl font-black">
-            {OPS_EVENTS.filter((evt) => evt.severity === "critical").length}
+            {opsEvents.filter((evt) => evt.severity === "critical").length}
           </p>
           <p className="text-xs text-neutral-500">Needs attention</p>
         </div>
@@ -217,12 +343,33 @@ export default function AdminConsolePage() {
         </div>
 
         <div className="xl:col-span-1 rounded-3xl border border-white/10 bg-neutral-900/40 p-6">
-          <h2 className="text-xl font-black mb-1">Health View</h2>
+          <div className="flex items-center justify-between gap-3 mb-1">
+            <h2 className="text-xl font-black">Health View</h2>
+            <button
+              type="button"
+              onClick={() => {
+                void loadHealth();
+              }}
+              className="text-xs px-3 py-1.5 rounded-full font-bold bg-white/10 hover:bg-white/20 transition"
+            >
+              Refresh
+            </button>
+          </div>
           <p className="text-sm text-neutral-400 mb-5">
             Service availability and basic latency posture.
           </p>
+          {healthError && (
+            <p className="text-xs text-red-300 bg-red-500/10 border border-red-500/20 rounded-xl p-3 mb-4">
+              {healthError}
+            </p>
+          )}
+          {healthInfo && (
+            <p className="text-xs text-neutral-500 mb-4">
+              API v{healthInfo.version} | uptime {healthInfo.uptime}s
+            </p>
+          )}
           <div className="space-y-4">
-            {SERVICE_HEALTH.map((service) => (
+            {services.map((service) => (
               <div
                 key={service.name}
                 className="rounded-2xl border border-white/10 p-4 bg-black/30"
@@ -236,11 +383,16 @@ export default function AdminConsolePage() {
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-sm text-neutral-400">
-                  <span>Latency: {service.latencyMs}ms</span>
-                  <span>Last check: {service.lastCheck}</span>
+                  <span>
+                    Latency: {service.latencyMs > 0 ? `${service.latencyMs}ms` : "n/a"}
+                  </span>
+                  <span className="text-right">{service.detail}</span>
                 </div>
               </div>
             ))}
+            {healthLoading && (
+              <p className="text-xs text-neutral-500">Refreshing health checks...</p>
+            )}
           </div>
         </div>
 
@@ -250,7 +402,7 @@ export default function AdminConsolePage() {
             Recent operational events and alerts.
           </p>
           <div className="space-y-4">
-            {OPS_EVENTS.map((event) => (
+            {opsEvents.map((event) => (
               <div
                 key={event.id}
                 className="rounded-2xl border border-white/10 p-4 bg-black/30"
@@ -266,7 +418,7 @@ export default function AdminConsolePage() {
                 <p className="text-sm text-neutral-200 mb-2">{event.event}</p>
                 <div className="flex items-center justify-between text-xs text-neutral-500">
                   <span>Actor: {event.actor}</span>
-                  <span>{event.timestamp}</span>
+                  <span>{new Date(event.timestampIso).toLocaleTimeString()}</span>
                 </div>
               </div>
             ))}
