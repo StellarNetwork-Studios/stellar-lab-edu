@@ -97,6 +97,7 @@ import { WebhookRetryScheduler } from "./webhook-retry.scheduler";
         return providers;
       },
       inject: [TelegramBotService, TelegramRepository, InAppNotificationRepository, MetricsService],
+      inject: [TelegramBotService, TelegramRepository, MetricsService],
     },
     NotificationService,
   ],
