@@ -2,7 +2,7 @@
 //!
 //! See [`crate::storage`] for the storage schema and key layout.
 
-use soroban_sdk::{contracttype, Address, BytesN};
+use soroban_sdk::{contracttype, Address, Bytes, BytesN};
 
 /// Escrow entry status.
 ///
@@ -93,7 +93,7 @@ pub struct PrivacyAwareEscrowView {
 
 /// Parameters for registering an ephemeral key (stealth deposit).
 ///
-/// Bundles the 8 arguments of `register_ephemeral_key` into a single struct
+/// Bundles the arguments of `register_ephemeral_key` into a single struct
 /// to satisfy the `clippy::too_many_arguments` lint (limit: 7).
 #[contracttype]
 #[derive(Clone)]
@@ -114,6 +114,10 @@ pub struct StealthDepositParams {
     pub stealth_address: BytesN<32>,
     /// Seconds until expiry; 0 = no expiry.
     pub timeout_secs: u64,
+    /// Optional cosigner address required to approve withdrawal.
+    pub cosigner: Option<Address>,
+    /// Encrypted memo only decryptable by the recipient (max 1024 bytes).
+    pub encrypted_memo: Bytes,
 }
 
 /// Stealth escrow entry for Privacy v2 (Issue #157).
@@ -126,6 +130,10 @@ pub struct StealthDepositParams {
 /// - `token`, `amount_due`, `amount_paid`, `status`, `created_at`, `expires_at` are public.
 /// - The link between `eph_pub` and the recipient's real identity is only
 ///   computable by the recipient (who holds the matching private key).
+///
+/// ## Multi-sig (v2)
+/// - When `cosigner` is `Some`, the cosigner must call `approve_stealth_cosigner`
+///   before the recipient can withdraw. This prevents single-key compromise.
 #[contracttype]
 #[derive(Clone)]
 pub struct StealthEscrowEntry {
@@ -144,6 +152,25 @@ pub struct StealthEscrowEntry {
     pub created_at: u64,
     /// Expiry timestamp; `0` means no expiry.
     pub expires_at: u64,
+    /// Optional cosigner required to approve before withdrawal.
+    pub cosigner: Option<Address>,
+    /// Whether the cosigner has approved the withdrawal.
+    pub cosigner_approved: bool,
+    /// Encrypted memo for the recipient (encrypted with DH shared secret).
+    pub encrypted_memo: Bytes,
+}
+
+/// Published stealth key pair for a recipient.
+///
+/// Recipients register their (scan, spend) public keys on-chain so senders
+/// can look them up and compute stealth addresses without out-of-band exchange.
+#[contracttype]
+#[derive(Clone)]
+pub struct StealthKeyPair {
+    /// Scan public key (32 bytes) — used by senders to derive the shared secret.
+    pub scan_pub: BytesN<32>,
+    /// Spend public key (32 bytes) — used to derive the one-time stealth address.
+    pub spend_pub: BytesN<32>,
 }
 
 /// Fee configuration for the platform.

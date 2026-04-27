@@ -12,7 +12,9 @@ export type SorobanEventType =
   | "AdminChanged"
   | "ContractUpgraded"
   | "EphemeralKeyRegistered"
-  | "StealthWithdrawn";
+  | "StealthWithdrawn"
+  | "StealthKeysRegistered"
+  | "CosignerApproved";
 
 export interface BaseContractEvent {
   eventType: SorobanEventType;
@@ -94,6 +96,21 @@ export interface StealthWithdrawnEvent extends BaseContractEvent {
   amount: bigint;
 }
 
+/** Emitted when a recipient publishes their stealth key pair. */
+export interface StealthKeysRegisteredEvent extends BaseContractEvent {
+  eventType: "StealthKeysRegistered";
+  owner: string;
+  scanPub: string;
+  spendPub: string;
+}
+
+/** Emitted when a cosigner approves a stealth withdrawal. */
+export interface CosignerApprovedEvent extends BaseContractEvent {
+  eventType: "CosignerApproved";
+  stealthAddress: string;
+  cosigner: string;
+}
+
 export type QuickExContractEvent =
   | EscrowDepositedEvent
   | EscrowWithdrawnEvent
@@ -103,11 +120,17 @@ export type QuickExContractEvent =
   | AdminChangedEvent
   | ContractUpgradedEvent
   | EphemeralKeyRegisteredEvent
-  | StealthWithdrawnEvent;
+  | StealthWithdrawnEvent
+  | StealthKeysRegisteredEvent
+  | CosignerApprovedEvent;
 
 export type EscrowEvent =
   | EscrowDepositedEvent
   | EscrowWithdrawnEvent
   | EscrowRefundedEvent;
 
-export type StealthEvent = EphemeralKeyRegisteredEvent | StealthWithdrawnEvent;
+export type StealthEvent =
+  | EphemeralKeyRegisteredEvent
+  | StealthWithdrawnEvent
+  | StealthKeysRegisteredEvent
+  | CosignerApprovedEvent;

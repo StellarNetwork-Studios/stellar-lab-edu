@@ -41,7 +41,7 @@
 
 use soroban_sdk::{contracttype, Address, Bytes, BytesN, Env, Vec};
 
-use crate::types::{EscrowEntry, FeeConfig, Role, StealthEscrowEntry};
+use crate::types::{EscrowEntry, FeeConfig, Role, StealthEscrowEntry, StealthKeyPair};
 
 // -----------------------------------------------------------------------------
 // Key constants (for keys not using DataKey)
@@ -113,6 +113,8 @@ pub enum DataKey {
     EscrowIdMap(BytesN<32>),
     /// Roles assigned to an address.
     UserRole(Address),
+    /// Stealth key pair registry — maps an address to its published (scan, spend) keys.
+    StealthRegistry(Address),
 }
 
 // -----------------------------------------------------------------------------
@@ -309,6 +311,23 @@ pub fn get_stealth_escrow(env: &Env, stealth_address: &BytesN<32>) -> Option<Ste
 pub fn put_stealth_escrow(env: &Env, stealth_address: &BytesN<32>, entry: &StealthEscrowEntry) {
     let key = DataKey::StealthEscrow(stealth_address.clone());
     env.storage().persistent().set(&key, entry);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, LEDGER_THRESHOLD, SIX_MONTHS_IN_LEDGERS);
+}
+
+// -----------------------------------------------------------------------------
+// Stealth registry helpers
+// -----------------------------------------------------------------------------
+
+pub fn get_stealth_registry(env: &Env, owner: &Address) -> Option<StealthKeyPair> {
+    let key = DataKey::StealthRegistry(owner.clone());
+    env.storage().persistent().get(&key)
+}
+
+pub fn put_stealth_registry(env: &Env, owner: &Address, keys: &StealthKeyPair) {
+    let key = DataKey::StealthRegistry(owner.clone());
+    env.storage().persistent().set(&key, keys);
     env.storage()
         .persistent()
         .extend_ttl(&key, LEDGER_THRESHOLD, SIX_MONTHS_IN_LEDGERS);

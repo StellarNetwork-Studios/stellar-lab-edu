@@ -6,7 +6,7 @@ use crate::{
 };
 use soroban_sdk::{
     testutils::{Address as _, Ledger},
-    token, Address, BytesN, Env,
+    token, Address, Bytes, BytesN, Env,
 };
 
 // ---------------------------------------------------------------------------
@@ -38,9 +38,10 @@ fn mint(env: &Env, token: &Address, recipient: &Address, amount: i128) {
     token::StellarAssetClient::new(env, token).mint(recipient, &amount);
 }
 
-/// Build a `StealthDepositParams` with the given fields.
+/// Build a `StealthDepositParams` with the given fields (no cosigner, empty memo).
 #[allow(clippy::too_many_arguments)]
 fn make_params(
+    env: &Env,
     sender: Address,
     token: Address,
     amount_due: i128,
@@ -59,6 +60,36 @@ fn make_params(
         spend_pub,
         stealth_address,
         timeout_secs,
+        cosigner: None,
+        encrypted_memo: Bytes::new(env),
+    }
+}
+
+/// Build a `StealthDepositParams` with a cosigner.
+#[allow(clippy::too_many_arguments)]
+fn make_params_with_cosigner(
+    env: &Env,
+    sender: Address,
+    token: Address,
+    amount_due: i128,
+    amount_paid: i128,
+    eph_pub: BytesN<32>,
+    spend_pub: BytesN<32>,
+    stealth_address: BytesN<32>,
+    timeout_secs: u64,
+    cosigner: Address,
+) -> StealthDepositParams {
+    StealthDepositParams {
+        sender,
+        token,
+        amount_due,
+        amount_paid,
+        eph_pub,
+        spend_pub,
+        stealth_address,
+        timeout_secs,
+        cosigner: Some(cosigner),
+        encrypted_memo: Bytes::new(env),
     }
 }
 
@@ -82,6 +113,7 @@ fn test_stealth_full_flow() {
     mint(&env, &token, &sender, amount);
 
     let returned_stealth = client.register_ephemeral_key(&make_params(
+        &env,
         sender,
         token.clone(),
         amount,
@@ -126,6 +158,7 @@ fn test_register_wrong_stealth_address_fails() {
 
     let err = client
         .try_register_ephemeral_key(&make_params(
+            &env,
             sender,
             token,
             amount,
@@ -156,6 +189,7 @@ fn test_register_duplicate_stealth_address_fails() {
     mint(&env, &token, &sender, amount * 2);
 
     client.register_ephemeral_key(&make_params(
+        &env,
         sender.clone(),
         token.clone(),
         amount,
@@ -168,6 +202,7 @@ fn test_register_duplicate_stealth_address_fails() {
 
     let err = client
         .try_register_ephemeral_key(&make_params(
+            &env,
             sender,
             token,
             amount,
@@ -199,6 +234,7 @@ fn test_stealth_withdraw_wrong_spend_pub_fails() {
     mint(&env, &token, &sender, amount);
 
     client.register_ephemeral_key(&make_params(
+        &env,
         sender,
         token,
         amount,
@@ -235,6 +271,7 @@ fn test_stealth_double_withdraw_fails() {
     mint(&env, &token, &sender, amount);
 
     client.register_ephemeral_key(&make_params(
+        &env,
         sender,
         token,
         amount,
@@ -271,6 +308,7 @@ fn test_stealth_withdraw_after_expiry_fails() {
     mint(&env, &token, &sender, amount);
 
     client.register_ephemeral_key(&make_params(
+        &env,
         sender,
         token,
         amount,
@@ -304,6 +342,7 @@ fn test_stealth_register_zero_amount_fails() {
 
     let err = client
         .try_register_ephemeral_key(&make_params(
+            &env,
             sender,
             token,
             0,
@@ -347,6 +386,7 @@ fn test_stealth_register_fails_when_paused() {
 
     let err = client
         .try_register_ephemeral_key(&make_params(
+            &env,
             sender,
             token,
             amount,
@@ -360,4 +400,199 @@ fn test_stealth_register_fails_when_paused() {
         .unwrap();
 
     assert_eq!(err, QuickexError::ContractPaused);
+}
+
+// ---------------------------------------------------------------------------
+// Cosigner / Multi-sig tests
+// ---------------------------------------------------------------------------
+
+/// Withdrawal with cosigner: must fail without cosigner approval.
+#[test]
+fn test_stealth_cosigner_required() {
+    let (env, client) = setup();
+    let token = create_test_token(&env);
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let cosigner = Address::generate(&env);
+    let amount: i128 = 500;
+
+    let eph_pub: BytesN<32> = BytesN::from_array(&env, &[20u8; 32]);
+    let spend_pub: BytesN<32> = BytesN::from_array(&env, &[21u8; 32]);
+    let stealth_address = compute_stealth_address(&env, &eph_pub, &spend_pub);
+
+    mint(&env, &token, &sender, amount);
+
+    client.register_ephemeral_key(&make_params_with_cosigner(
+        &env,
+        sender,
+        token,
+        amount,
+        amount,
+        eph_pub.clone(),
+        spend_pub.clone(),
+        stealth_address.clone(),
+        0,
+        cosigner,
+    ));
+
+    let err = client
+        .try_stealth_withdraw(&recipient, &eph_pub, &spend_pub, &stealth_address)
+        .unwrap_err()
+        .unwrap();
+
+    assert_eq!(err, QuickexError::CosignerRequired);
+}
+
+/// Full flow with cosigner: approve then withdraw.
+#[test]
+fn test_stealth_cosigner_full_flow() {
+    let (env, client) = setup();
+    let token = create_test_token(&env);
+    let sender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let cosigner = Address::generate(&env);
+    let amount: i128 = 500;
+
+    let eph_pub: BytesN<32> = BytesN::from_array(&env, &[22u8; 32]);
+    let spend_pub: BytesN<32> = BytesN::from_array(&env, &[23u8; 32]);
+    let stealth_address = compute_stealth_address(&env, &eph_pub, &spend_pub);
+
+    mint(&env, &token, &sender, amount);
+
+    client.register_ephemeral_key(&make_params_with_cosigner(
+        &env,
+        sender,
+        token.clone(),
+        amount,
+        amount,
+        eph_pub.clone(),
+        spend_pub.clone(),
+        stealth_address.clone(),
+        0,
+        cosigner.clone(),
+    ));
+
+    client.approve_stealth_cosigner(&cosigner, &stealth_address);
+
+    let ok = client.stealth_withdraw(&recipient, &eph_pub, &spend_pub, &stealth_address);
+    assert!(ok);
+
+    let token_client = token::Client::new(&env, &token);
+    assert_eq!(token_client.balance(&recipient), amount);
+}
+
+/// Wrong cosigner must be rejected.
+#[test]
+fn test_stealth_wrong_cosigner_fails() {
+    let (env, client) = setup();
+    let token = create_test_token(&env);
+    let sender = Address::generate(&env);
+    let cosigner = Address::generate(&env);
+    let wrong_cosigner = Address::generate(&env);
+    let amount: i128 = 500;
+
+    let eph_pub: BytesN<32> = BytesN::from_array(&env, &[24u8; 32]);
+    let spend_pub: BytesN<32> = BytesN::from_array(&env, &[25u8; 32]);
+    let stealth_address = compute_stealth_address(&env, &eph_pub, &spend_pub);
+
+    mint(&env, &token, &sender, amount);
+
+    client.register_ephemeral_key(&make_params_with_cosigner(
+        &env,
+        sender,
+        token,
+        amount,
+        amount,
+        eph_pub,
+        spend_pub,
+        stealth_address.clone(),
+        0,
+        cosigner,
+    ));
+
+    let err = client
+        .try_approve_stealth_cosigner(&wrong_cosigner, &stealth_address)
+        .unwrap_err()
+        .unwrap();
+
+    assert_eq!(err, QuickexError::InvalidCosigner);
+}
+
+/// Double cosigner approval must fail.
+#[test]
+fn test_stealth_double_cosigner_approval_fails() {
+    let (env, client) = setup();
+    let token = create_test_token(&env);
+    let sender = Address::generate(&env);
+    let cosigner = Address::generate(&env);
+    let amount: i128 = 500;
+
+    let eph_pub: BytesN<32> = BytesN::from_array(&env, &[26u8; 32]);
+    let spend_pub: BytesN<32> = BytesN::from_array(&env, &[27u8; 32]);
+    let stealth_address = compute_stealth_address(&env, &eph_pub, &spend_pub);
+
+    mint(&env, &token, &sender, amount);
+
+    client.register_ephemeral_key(&make_params_with_cosigner(
+        &env,
+        sender,
+        token,
+        amount,
+        amount,
+        eph_pub,
+        spend_pub,
+        stealth_address.clone(),
+        0,
+        cosigner.clone(),
+    ));
+
+    client.approve_stealth_cosigner(&cosigner, &stealth_address);
+
+    let err = client
+        .try_approve_stealth_cosigner(&cosigner, &stealth_address)
+        .unwrap_err()
+        .unwrap();
+
+    assert_eq!(err, QuickexError::CosignerAlreadyApproved);
+}
+
+// ---------------------------------------------------------------------------
+// Stealth key registry tests
+// ---------------------------------------------------------------------------
+
+/// Register and retrieve stealth keys.
+#[test]
+fn test_stealth_key_registry() {
+    let (env, client) = setup();
+    let owner = Address::generate(&env);
+
+    let scan_pub: BytesN<32> = BytesN::from_array(&env, &[30u8; 32]);
+    let spend_pub: BytesN<32> = BytesN::from_array(&env, &[31u8; 32]);
+
+    assert_eq!(client.get_stealth_keys(&owner), None);
+
+    client.register_stealth_keys(&owner, &scan_pub, &spend_pub);
+
+    let keys = client.get_stealth_keys(&owner).unwrap();
+    assert_eq!(keys.scan_pub, scan_pub);
+    assert_eq!(keys.spend_pub, spend_pub);
+}
+
+/// Key rotation: overwriting existing keys.
+#[test]
+fn test_stealth_key_rotation() {
+    let (env, client) = setup();
+    let owner = Address::generate(&env);
+
+    let scan_pub_1: BytesN<32> = BytesN::from_array(&env, &[32u8; 32]);
+    let spend_pub_1: BytesN<32> = BytesN::from_array(&env, &[33u8; 32]);
+    client.register_stealth_keys(&owner, &scan_pub_1, &spend_pub_1);
+
+    let scan_pub_2: BytesN<32> = BytesN::from_array(&env, &[34u8; 32]);
+    let spend_pub_2: BytesN<32> = BytesN::from_array(&env, &[35u8; 32]);
+    client.register_stealth_keys(&owner, &scan_pub_2, &spend_pub_2);
+
+    let keys = client.get_stealth_keys(&owner).unwrap();
+    assert_eq!(keys.scan_pub, scan_pub_2);
+    assert_eq!(keys.spend_pub, spend_pub_2);
 }

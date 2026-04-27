@@ -35,6 +35,7 @@ use errors::QuickexError;
 use storage::*;
 use types::{
     EscrowEntry, EscrowStatus, FeeConfig, PrivacyAwareEscrowView, Role, StealthDepositParams,
+    StealthKeyPair,
 };
 
 /// QuickEx Privacy Contract
@@ -841,6 +842,64 @@ impl QuickexContract {
     /// * `stealth_address` – The 32-byte one-time stealth address.
     pub fn get_stealth_status(env: Env, stealth_address: BytesN<32>) -> Option<EscrowStatus> {
         stealth::get_stealth_status(&env, &stealth_address)
+    }
+
+    // -----------------------------------------------------------------------
+    // Stealth Key Registry – Privacy v2
+    // -----------------------------------------------------------------------
+
+    /// Publish a (scan, spend) key pair for stealth address generation.
+    ///
+    /// Senders look up these keys to derive one-time stealth addresses
+    /// without out-of-band key exchange. The owner can overwrite keys
+    /// at any time (key rotation).
+    ///
+    /// # Errors
+    /// * `ContractPaused` – contract is paused.
+    pub fn register_stealth_keys(
+        env: Env,
+        owner: Address,
+        scan_pub: BytesN<32>,
+        spend_pub: BytesN<32>,
+    ) -> Result<(), QuickexError> {
+        if admin::is_paused(&env) {
+            return Err(QuickexError::ContractPaused);
+        }
+        stealth::register_stealth_keys(&env, owner, scan_pub, spend_pub)
+    }
+
+    /// Look up the stealth key pair registered by `owner` (read-only).
+    ///
+    /// Returns `None` if no keys have been registered.
+    pub fn get_stealth_keys(env: Env, owner: Address) -> Option<StealthKeyPair> {
+        stealth::get_registered_stealth_keys(&env, &owner)
+    }
+
+    // -----------------------------------------------------------------------
+    // Cosigner Approval – Privacy v2 Multi-sig
+    // -----------------------------------------------------------------------
+
+    /// Approve a pending stealth withdrawal as a cosigner.
+    ///
+    /// When a stealth deposit specifies a cosigner, the recipient cannot
+    /// withdraw until this function is called by the matching cosigner.
+    /// This prevents single-key compromise from draining stealth funds.
+    ///
+    /// # Errors
+    /// * `ContractPaused`          – contract is paused.
+    /// * `StealthEscrowNotFound`   – no escrow at this stealth address.
+    /// * `AlreadySpent`            – escrow is not pending.
+    /// * `InvalidCosigner`         – caller does not match the registered cosigner.
+    /// * `CosignerAlreadyApproved` – already approved.
+    pub fn approve_stealth_cosigner(
+        env: Env,
+        cosigner: Address,
+        stealth_address: BytesN<32>,
+    ) -> Result<(), QuickexError> {
+        if admin::is_paused(&env) {
+            return Err(QuickexError::ContractPaused);
+        }
+        stealth::approve_stealth_cosigner(&env, cosigner, stealth_address)
     }
 
     /// Upgrade the contract to a new WASM implementation (**Admin only**).

@@ -13,6 +13,8 @@ import type {
   ContractUpgradedEvent,
   EphemeralKeyRegisteredEvent,
   StealthWithdrawnEvent,
+  StealthKeysRegisteredEvent,
+  CosignerApprovedEvent,
 } from "./types/contract-event.types";
 
 /**
@@ -82,6 +84,10 @@ export class SorobanEventParser {
           return this.parseEphemeralKeyRegistered(topics, dataVal, base);
         case "StealthWithdrawn":
           return this.parseStealthWithdrawn(topics, dataVal, base);
+        case "StealthKeysRegistered":
+          return this.parseStealthKeysRegistered(topics, dataVal, base);
+        case "CosignerApproved":
+          return this.parseCosignerApproved(topics, dataVal, base);
         default:
           this.logger.debug(`Unrecognised event name: ${eventName}`);
           return null;
@@ -270,7 +276,6 @@ export class SorobanEventParser {
       "eventType" | "stealthAddress" | "recipient" | "token" | "amount"
     >,
   ): StealthWithdrawnEvent {
-    // Topics: [name, stealth_address, recipient]
     const stealthAddress = this.decodeBytes32Hex(topics[1]);
     const recipient = this.decodeAddress(topics[2]);
     const map = this.dataToMap(data);
@@ -282,6 +287,45 @@ export class SorobanEventParser {
       recipient,
       token: this.decodeAddress(map["token"]),
       amount: BigInt(scValToNative(map["amount"])),
+    };
+  }
+
+  private parseStealthKeysRegistered(
+    topics: xdr.ScVal[],
+    data: xdr.ScVal,
+    base: Omit<
+      StealthKeysRegisteredEvent,
+      "eventType" | "owner" | "scanPub" | "spendPub"
+    >,
+  ): StealthKeysRegisteredEvent {
+    const owner = this.decodeAddress(topics[1]);
+    const map = this.dataToMap(data);
+
+    return {
+      eventType: "StealthKeysRegistered",
+      ...base,
+      owner,
+      scanPub: this.decodeBytes32Hex(map["scan_pub"]),
+      spendPub: this.decodeBytes32Hex(map["spend_pub"]),
+    };
+  }
+
+  private parseCosignerApproved(
+    topics: xdr.ScVal[],
+    data: xdr.ScVal,
+    base: Omit<
+      CosignerApprovedEvent,
+      "eventType" | "stealthAddress" | "cosigner"
+    >,
+  ): CosignerApprovedEvent {
+    const stealthAddress = this.decodeBytes32Hex(topics[1]);
+    const cosigner = this.decodeAddress(topics[2]);
+
+    return {
+      eventType: "CosignerApproved",
+      ...base,
+      stealthAddress,
+      cosigner,
     };
   }
 

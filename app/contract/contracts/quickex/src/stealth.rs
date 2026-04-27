@@ -44,9 +44,11 @@ use soroban_sdk::{token, Address, Bytes, BytesN, Env};
 use crate::{
     errors::QuickexError,
     events,
-    storage::{get_stealth_escrow, put_stealth_escrow},
-    types::{EscrowStatus, StealthDepositParams, StealthEscrowEntry},
+    storage::{get_stealth_escrow, get_stealth_registry, put_stealth_escrow, put_stealth_registry},
+    types::{EscrowStatus, StealthDepositParams, StealthEscrowEntry, StealthKeyPair},
 };
+
+const MAX_ENCRYPTED_MEMO_LEN: u32 = 1024;
 
 // ---------------------------------------------------------------------------
 // Key-derivation helpers
@@ -89,6 +91,8 @@ pub fn derive_stealth_address(
 /// - `stealth_address` – the one-time address derived off-chain via DH.
 /// - `eph_pub`         – the sender's ephemeral public key (32 bytes).
 /// - `spend_pub`       – recipient's spend public key (32 bytes).
+/// - `cosigner`        – optional cosigner address (multi-sig withdrawal).
+/// - `encrypted_memo`  – optional encrypted metadata for recipient.
 ///
 /// The contract re-derives the stealth address on-chain to verify the sender's
 /// computation, then locks `amount` of `token` under that stealth address.
@@ -97,6 +101,7 @@ pub fn derive_stealth_address(
 /// - [`InvalidAmount`]            – amount ≤ 0.
 /// - [`StealthAddressMismatch`]   – on-chain re-derivation does not match `stealth_address`.
 /// - [`StealthAddressAlreadyUsed`]– a deposit already exists for this stealth address.
+/// - [`MemoTooLarge`]             – encrypted_memo exceeds 1024 bytes.
 pub fn register_ephemeral_key(
     env: &Env,
     params: StealthDepositParams,
@@ -110,6 +115,8 @@ pub fn register_ephemeral_key(
         spend_pub,
         stealth_address,
         timeout_secs,
+        cosigner,
+        encrypted_memo,
     } = params;
 
     if amount_due <= 0 || amount_paid <= 0 {
@@ -120,24 +127,23 @@ pub fn register_ephemeral_key(
         return Err(QuickexError::Overpayment);
     }
 
+    if encrypted_memo.len() > MAX_ENCRYPTED_MEMO_LEN {
+        return Err(QuickexError::MemoTooLarge);
+    }
+
     sender.require_auth();
 
-    // Re-derive on-chain to verify sender's computation.
-    // shared_secret = KDF(eph_pub || spend_pub)
     let shared_secret = derive_shared_secret(env, &eph_pub, &spend_pub);
-    // stealth = KDF(spend_pub || shared_secret)
     let expected_stealth = derive_stealth_address(env, &spend_pub, &shared_secret);
 
     if expected_stealth != stealth_address {
         return Err(QuickexError::StealthAddressMismatch);
     }
 
-    // Reject duplicate stealth addresses (replay protection).
     if get_stealth_escrow(env, &stealth_address).is_some() {
         return Err(QuickexError::StealthAddressAlreadyUsed);
     }
 
-    // Transfer funds from sender to contract.
     let token_client = token::Client::new(env, &token);
     let contract_addr = env.current_contract_address();
     token_client.transfer(&sender, &contract_addr, &amount_paid);
@@ -157,6 +163,9 @@ pub fn register_ephemeral_key(
         status: EscrowStatus::Pending,
         created_at: now,
         expires_at,
+        cosigner,
+        cosigner_approved: false,
+        encrypted_memo,
     };
 
     put_stealth_escrow(env, &stealth_address, &entry);
@@ -188,11 +197,15 @@ pub fn register_ephemeral_key(
 /// receiving the tokens – it is only revealed at withdrawal time and is
 /// not linked to the original stealth address in any prior transaction.
 ///
+/// If a cosigner was set during deposit, withdrawal is blocked until the
+/// cosigner has called `approve_stealth_cosigner`.
+///
 /// # Errors
 /// - [`StealthEscrowNotFound`]  – no escrow for this stealth address.
 /// - [`AlreadySpent`]           – escrow already withdrawn or refunded.
 /// - [`EscrowExpired`]          – escrow has passed its expiry.
 /// - [`StealthAddressMismatch`] – re-derived address does not match.
+/// - [`CosignerRequired`]      – cosigner has not yet approved.
 pub fn stealth_withdraw(
     env: &Env,
     recipient: Address,
@@ -213,7 +226,10 @@ pub fn stealth_withdraw(
         return Err(QuickexError::EscrowExpired);
     }
 
-    // Verify the caller knows the correct spend_pub for this stealth address.
+    if entry.cosigner.is_some() && !entry.cosigner_approved {
+        return Err(QuickexError::CosignerRequired);
+    }
+
     let shared_secret = derive_shared_secret(env, &eph_pub, &spend_pub);
     let expected_stealth = derive_stealth_address(env, &spend_pub, &shared_secret);
 
@@ -221,11 +237,9 @@ pub fn stealth_withdraw(
         return Err(QuickexError::StealthAddressMismatch);
     }
 
-    // Mark spent before transfer (checks-effects-interactions).
     entry.status = EscrowStatus::Spent;
     put_stealth_escrow(env, &stealth_address, &entry);
 
-    // Transfer funds to recipient.
     let token_client = token::Client::new(env, &entry.token);
     token_client.transfer(
         &env.current_contract_address(),
@@ -253,4 +267,81 @@ pub fn stealth_withdraw(
 /// Returns `None` if no escrow exists for the given stealth address.
 pub fn get_stealth_status(env: &Env, stealth_address: &BytesN<32>) -> Option<EscrowStatus> {
     get_stealth_escrow(env, stealth_address).map(|e| e.status)
+}
+
+// ---------------------------------------------------------------------------
+// Stealth key registry
+// ---------------------------------------------------------------------------
+
+/// Publish a (scan, spend) key pair so senders can derive stealth addresses.
+///
+/// The owner must authorize. Overwrites any previously registered keys.
+pub fn register_stealth_keys(
+    env: &Env,
+    owner: Address,
+    scan_pub: BytesN<32>,
+    spend_pub: BytesN<32>,
+) -> Result<(), QuickexError> {
+    owner.require_auth();
+
+    let keys = StealthKeyPair {
+        scan_pub: scan_pub.clone(),
+        spend_pub: spend_pub.clone(),
+    };
+    put_stealth_registry(env, &owner, &keys);
+
+    events::publish_stealth_keys_registered(env, owner, scan_pub, spend_pub);
+    Ok(())
+}
+
+/// Look up the stealth key pair registered by `owner`.
+///
+/// Returns `None` if no keys have been registered.
+pub fn get_registered_stealth_keys(env: &Env, owner: &Address) -> Option<StealthKeyPair> {
+    get_stealth_registry(env, owner)
+}
+
+// ---------------------------------------------------------------------------
+// Cosigner approval
+// ---------------------------------------------------------------------------
+
+/// Approve a stealth withdrawal as a cosigner.
+///
+/// The cosigner must match the address set during the stealth deposit.
+/// Once approved, the recipient can proceed with `stealth_withdraw`.
+///
+/// # Errors
+/// - [`StealthEscrowNotFound`]    – no escrow for this stealth address.
+/// - [`AlreadySpent`]             – escrow is not pending.
+/// - [`InvalidCosigner`]          – caller does not match the registered cosigner.
+/// - [`CosignerAlreadyApproved`]  – cosigner has already approved.
+pub fn approve_stealth_cosigner(
+    env: &Env,
+    cosigner: Address,
+    stealth_address: BytesN<32>,
+) -> Result<(), QuickexError> {
+    cosigner.require_auth();
+
+    let mut entry =
+        get_stealth_escrow(env, &stealth_address).ok_or(QuickexError::StealthEscrowNotFound)?;
+
+    if entry.status != EscrowStatus::Pending {
+        return Err(QuickexError::AlreadySpent);
+    }
+
+    let expected = entry.cosigner.as_ref().ok_or(QuickexError::InvalidCosigner)?;
+    if *expected != cosigner {
+        return Err(QuickexError::InvalidCosigner);
+    }
+
+    if entry.cosigner_approved {
+        return Err(QuickexError::CosignerAlreadyApproved);
+    }
+
+    entry.cosigner_approved = true;
+    put_stealth_escrow(env, &stealth_address, &entry);
+
+    events::publish_cosigner_approved(env, stealth_address, cosigner);
+
+    Ok(())
 }

@@ -52,6 +52,16 @@ pub enum QuickexError {
     StealthAddressAlreadyUsed = 401,
     /// No stealth escrow found for the given stealth address.
     StealthEscrowNotFound = 402,
+    /// Withdrawal requires cosigner approval that has not been granted.
+    CosignerRequired = 403,
+    /// Provided cosigner does not match the one set during deposit.
+    InvalidCosigner = 404,
+    /// No stealth keys registered for this address.
+    StealthKeysNotFound = 405,
+    /// Cosigner has already approved this withdrawal.
+    CosignerAlreadyApproved = 406,
+    /// Encrypted memo exceeds the maximum allowed length.
+    MemoTooLarge = 407,
     // Internal/unexpected conditions (900-999)
     InternalError = 900,
     InvalidTimeout = 901,

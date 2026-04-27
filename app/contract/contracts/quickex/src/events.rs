@@ -377,6 +377,57 @@ pub(crate) fn publish_stealth_withdrawn(
     .publish(env);
 }
 
+#[contractevent(topics = ["TOPIC_STEALTH", "StealthKeysRegistered"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StealthKeysRegisteredEvent {
+    #[topic]
+    pub owner: Address,
+
+    pub scan_pub: BytesN<32>,
+    pub spend_pub: BytesN<32>,
+    pub timestamp: u64,
+}
+
+pub(crate) fn publish_stealth_keys_registered(
+    env: &Env,
+    owner: Address,
+    scan_pub: BytesN<32>,
+    spend_pub: BytesN<32>,
+) {
+    StealthKeysRegisteredEvent {
+        owner,
+        scan_pub,
+        spend_pub,
+        timestamp: env.ledger().timestamp(),
+    }
+    .publish(env);
+}
+
+#[contractevent(topics = ["TOPIC_STEALTH", "CosignerApproved"])]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CosignerApprovedEvent {
+    #[topic]
+    pub stealth_address: BytesN<32>,
+
+    #[topic]
+    pub cosigner: Address,
+
+    pub timestamp: u64,
+}
+
+pub(crate) fn publish_cosigner_approved(
+    env: &Env,
+    stealth_address: BytesN<32>,
+    cosigner: Address,
+) {
+    CosignerApprovedEvent {
+        stealth_address,
+        cosigner,
+        timestamp: env.ledger().timestamp(),
+    }
+    .publish(env);
+}
+
 #[contractevent(topics = ["TOPIC_ADMIN", "FeeConfigChanged"])]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FeeConfigChangedEvent {
