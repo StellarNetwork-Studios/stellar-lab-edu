@@ -144,10 +144,24 @@ export class AppConfigService {
     return this.configService.get('STELLAR_PUBLIC_KEY', { infer: true });
   }
 
-  /**
-   * Check if payment signing is configured (has secret key)
-   */
+/**
+    * Check if payment signing is configured (has secret key)
+    */
   get isPaymentSigningConfigured(): boolean {
     return !!this.stellarSecretKey;
+  }
+
+  /**
+    * Check if signed payload verification is enabled
+    */
+  get signedPayloadEnabled(): boolean {
+    return this.configService.get('SIGNED_PAYLOAD_ENABLED', { infer: true });
+  }
+
+  /**
+    * Get signed payload replay window in milliseconds
+    */
+  get signedPayloadReplayWindowMs(): number {
+    return this.configService.get('SIGNED_PAYLOAD_REPLAY_WINDOW_MS', { infer: true });
   }
 }

@@ -22,6 +22,8 @@ import { RefundsService } from './refunds.service';
 import { InitiateRefundDto } from './dto/initiate-refund.dto';
 import { ApiKeyGuard } from '../auth/guards/api-key.guard';
 import { RequireScopes } from '../auth/decorators/require-scopes.decorator';
+import { SignedPayload } from '../signed-payload/decorators/require-signed-payload.decorator';
+import { SignedPayloadGuard } from '../signed-payload/guards/signed-payload.guard';
 
 interface ApiKeyRequest extends Request {
   apiKey: { id: string };
@@ -33,8 +35,9 @@ interface ApiKeyRequest extends Request {
   description: 'Admin API key with refunds:write scope',
   required: true,
 })
-@UseGuards(ApiKeyGuard)
+@UseGuards(ApiKeyGuard, SignedPayloadGuard)
 @RequireScopes('refunds:write')
+@SignedPayload(true)
 @Controller('admin/refunds')
 export class RefundsController {
   constructor(private readonly refundsService: RefundsService) {}

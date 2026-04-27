@@ -232,6 +232,20 @@ export const envSchema = Joi.object({
     .optional()
     .default(1.0)
     .description("Sentry profiling sample rate (0.0 to 1.0). Default: 1.0"),
+
+  // ---------------------------------------------------------------------------
+  // Signed Payload Verification (optional; omit to disable)
+  // ---------------------------------------------------------------------------
+
+  SIGNED_PAYLOAD_ENABLED: Joi.boolean()
+    .default(true)
+    .description('Enable signed payload verification for sensitive endpoints'),
+
+  SIGNED_PAYLOAD_REPLAY_WINDOW_MS: Joi.number()
+    .integer()
+    .min(1000)
+    .default(5 * 60 * 1000)
+    .description('Replay protection window in milliseconds'),
 });
 
 /**
@@ -274,4 +288,6 @@ export interface EnvConfig {
   SENTRY_RELEASE?: string;
   SENTRY_TRACES_SAMPLE_RATE: number;
   SENTRY_PROFILES_SAMPLE_RATE: number;
+  SIGNED_PAYLOAD_ENABLED: boolean;
+  SIGNED_PAYLOAD_REPLAY_WINDOW_MS: number;
 }

@@ -10,6 +10,7 @@ import {
   BadRequestException,
   ForbiddenException,
   ConflictException,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiBody,
@@ -23,9 +24,13 @@ import {
 import { MarketplaceService } from './marketplace.service';
 import { ListUsernameDto, PlaceBidDto, AcceptBidDto, CancelListingDto } from './dto';
 import { MarketplaceError, MarketplaceErrorCode } from './errors';
+import { SignedPayload } from '../signed-payload/decorators/require-signed-payload.decorator';
+import { SignedPayloadGuard } from '../signed-payload/guards/signed-payload.guard';
 
 @ApiTags('marketplace')
 @Controller('marketplace')
+@UseGuards(SignedPayloadGuard)
+@SignedPayload(true)
 export class MarketplaceController {
   constructor(private readonly marketplaceService: MarketplaceService) {}
 
