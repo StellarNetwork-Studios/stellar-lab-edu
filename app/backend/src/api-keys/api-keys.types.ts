@@ -17,6 +17,7 @@ export interface ApiKeyRecord {
   key_prefix: string;
   scopes: ApiKeyScope[];
   owner_id: string | null;
+  organization_id: string | null; // Foreign key to organizations table
   is_active: boolean;
   request_count: number;
   monthly_quota: number;

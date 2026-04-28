@@ -37,6 +37,7 @@ import { ExportsModule } from "./exports/exports.module";
 import { JobQueueModule } from "./job-queue/job-queue.module";
 import { AuditModule } from "./audit/audit.module";
 import { FeatureFlagsModule } from "./feature-flags/feature-flags.module";
+import { OrganizationsModule } from "./organizations/organizations.module";
 import { CustomThrottlerGuard } from "./auth/guards/custom-throttler.guard";
 import { throttlerModuleProfiles } from "./config/rate-limit.config";
 
@@ -59,6 +60,7 @@ type AppImport =
       }),
       ThrottlerModule.forRoot(throttlerModuleProfiles),
       SupabaseModule,
+      OrganizationsModule,
       HealthModule,
       AssetMetadataModule,
       StellarModule,

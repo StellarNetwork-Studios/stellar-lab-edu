@@ -4,6 +4,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   ArrayMinSize,
   MaxLength,
 } from 'class-validator';
@@ -23,4 +24,8 @@ export class CreateApiKeyDto {
   @IsOptional()
   @IsString()
   owner_id?: string;
+
+  @IsOptional()
+  @IsUUID()
+  organization_id?: string; // Organization to scope this API key to
 }

@@ -17,11 +17,15 @@ export class ApiKeysRepository {
     key_prefix: string;
     scopes: ApiKeyScope[];
     owner_id: string | null;
+    organization_id?: string | null;
     monthly_quota: number;
   }): Promise<ApiKeyRecord> {
     const { data: row, error } = await this.client
       .from('api_keys')
-      .insert(data)
+      .insert({
+        ...data,
+        organization_id: data.organization_id || null,
+      })
       .select()
       .single();
 

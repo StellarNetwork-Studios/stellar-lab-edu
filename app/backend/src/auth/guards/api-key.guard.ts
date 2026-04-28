@@ -10,11 +10,13 @@ import { ApiKeysService } from "../../api-keys/api-keys.service";
 import { ApiKeyScope } from "../../api-keys/api-keys.types";
 import { throttlerConfig } from "../../config/rate-limit.config";
 import { REQUIRED_SCOPES_KEY } from "../decorators/require-scopes.decorator";
+import { OrganizationContextService } from "../../organizations/organization-context.service";
 
 @Injectable()
 export class ApiKeyGuard implements CanActivate {
   constructor(
     private readonly apiKeysService: ApiKeysService,
+    private readonly orgContextService: OrganizationContextService,
     private readonly reflector: Reflector,
   ) {}
 
@@ -58,12 +60,25 @@ export class ApiKeyGuard implements CanActivate {
       }
     }
 
+    // Extract organization context from API key
+    const organizationId = await this.orgContextService.getApiKeyOrganization(record);
+    const userId = this.orgContextService.getUserFromApiKey(record);
+
     request.apiKey = {
       id: record.id,
       name: record.name,
       scopes: record.scopes,
       rateLimit: throttlerConfig.groups.authenticated.sustained.limit,
     };
+
+    // Attach organization context to request if available
+    if (organizationId && userId) {
+      request.organizationContext = {
+        organization_id: organizationId,
+        user_id: userId,
+        apiKeyId: record.id,
+      };
+    }
 
     return true;
   }

@@ -41,6 +41,7 @@ export class ApiKeysService {
       key_prefix: prefix,
       scopes: dto.scopes,
       owner_id: dto.owner_id ?? null,
+      organization_id: dto.organization_id ?? null,
       monthly_quota: DEFAULT_QUOTA,
     });
 
