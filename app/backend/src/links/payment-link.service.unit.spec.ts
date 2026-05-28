@@ -4,6 +4,7 @@ import { PaymentLinkService } from "./payment-link.service";
 import { HorizonService } from "../transactions/horizon.service";
 import { SupabaseService } from "../supabase/supabase.service";
 import { LinksService } from "./links.service";
+import { ContractCompatibilityService } from "../contract/contract-compatibility.service";
 import { LinkState } from "./link-state-machine";
 
 describe("PaymentLinkService", () => {
@@ -32,6 +33,15 @@ describe("PaymentLinkService", () => {
       assetType: "native",
       linkType: "standard",
       securityLevel: "medium",
+    },
+    contractCompatibility: {
+      contractId: "GCONTRACT",
+      currentVersion: "1.0.0",
+      requiredVersion: "1.0.0",
+      supported: true,
+      schema: "quickex.v1",
+      reason: "Contract deployment compatible.",
+      recommendation: "Continue using current deployment.",
     },
   };
 
@@ -80,6 +90,20 @@ describe("PaymentLinkService", () => {
           provide: LinksService,
           useValue: {
             generateMetadata: jest.fn(),
+          },
+        },
+        {
+          provide: ContractCompatibilityService,
+          useValue: {
+            buildCompatibility: jest.fn().mockReturnValue({
+              contractId: "GCONTRACT",
+              currentVersion: "1.0.0",
+              requiredVersion: "1.0.0",
+              supported: true,
+              schema: "quickex.v1",
+              reason: "Contract deployment compatible.",
+              recommendation: "Continue using current deployment.",
+            }),
           },
         },
       ],
@@ -165,6 +189,7 @@ describe("PaymentLinkService", () => {
       const expiredMetadata = {
         ...mockMetadata,
         expiresAt: new Date(Date.now() - 86400000), // Yesterday
+        contractCompatibility: mockMetadata.contractCompatibility,
       };
 
       // Mock username lookup

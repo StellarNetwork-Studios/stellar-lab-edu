@@ -1,6 +1,7 @@
 import { BadRequestException, GoneException, NotFoundException } from "@nestjs/common";
 import { QuoteService } from "./quote.service";
 import type { PathPreviewRow } from "./path-preview.service";
+import type { ContractCompatibilityService } from "../contract/contract-compatibility.service";
 
 const MOCK_PATH: PathPreviewRow = {
   sourceAmount: "100.0000000",
@@ -16,7 +17,19 @@ function makeService(paths: PathPreviewRow[] = [MOCK_PATH]) {
   const mockPreview = {
     previewPaths: jest.fn().mockResolvedValue({ paths, horizonUrl: "https://horizon-testnet.stellar.org" }),
   };
-  return new QuoteService(mockPreview as never);
+  const mockCompatibility = {
+    buildCompatibility: jest.fn().mockReturnValue({
+      contractId: "GCONTRACT",
+      currentVersion: "1.0.0",
+      requiredVersion: "1.0.0",
+      supported: true,
+      schema: "quickex.v1",
+      reason: "Contract deployment is compatible for 'quote'.",
+      recommendation: "Continue using contract GCONTRACT with version 1.0.0.",
+    }),
+  } as unknown as ContractCompatibilityService;
+
+  return new QuoteService(mockPreview as never, mockCompatibility);
 }
 
 const BASE_DTO = {
@@ -59,6 +72,8 @@ describe("QuoteService", () => {
       const svc = makeService();
       const result = await svc.createQuote({ ...BASE_DTO, preflight: true });
       expect(result.preflight).toEqual({ feasible: true });
+      expect(result.contractCompatibility.supported).toBe(true);
+      expect(result.contractCompatibility.requiredVersion).toBe("1.0.0");
     });
   });
 

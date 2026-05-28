@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { LinkState } from "../../links/link-state-machine";
+import type { ContractCompatibilityDto } from "../../contract/contract-compatibility.types";
 
 export class PaymentLinkStatusDto {
   @ApiProperty({
@@ -100,4 +101,10 @@ export class PaymentLinkStatusDto {
     example: ["pay", "share"],
   })
   availableActions?: string[];
+
+  @ApiProperty({
+    description: "Contract compatibility metadata for the current QuickEx deployment",
+    type: Object,
+  })
+  contractCompatibility!: ContractCompatibilityDto;
 }

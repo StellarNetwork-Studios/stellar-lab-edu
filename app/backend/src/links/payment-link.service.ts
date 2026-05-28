@@ -1,10 +1,11 @@
-import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 import { LinkState } from "../links/link-state-machine";
 import { PaymentLinkStatusDto } from "../dto/link/payment-link-status.dto";
 import { HorizonService } from "../transactions/horizon.service";
 import { SupabaseService } from "../supabase/supabase.service";
 import { LinksService } from "../links/links.service";
 import { PathPreviewService } from "../stellar/path-preview.service";
+import { ContractCompatibilityService } from "../contract/contract-compatibility.service";
 
 import { LinkMetadataResponseDto } from "../dto/link/link-metadata-response.dto";
 
@@ -17,7 +18,8 @@ export class PaymentLinkService {
     private readonly horizonService: HorizonService,
     private readonly supabaseService: SupabaseService,
     private readonly linksService: LinksService,
-    private readonly pathPreviewService?: PathPreviewService,
+    private readonly contractCompatibilityService: ContractCompatibilityService,
+    @Optional() private readonly pathPreviewService?: PathPreviewService,
   ) {}
 
   /**
@@ -82,6 +84,9 @@ export class PaymentLinkService {
       acceptedAssets: metadata.acceptedAssets || null,
       userMessage,
       availableActions,
+      contractCompatibility: this.contractCompatibilityService.buildCompatibility(
+        "paymentLinkStatus",
+      ),
     };
   }
 

@@ -6,6 +6,7 @@ import {
   PathPreviewService,
   type PathPreviewRow,
 } from '../stellar/path-preview.service';
+import { ContractCompatibilityService } from '../contract/contract-compatibility.service';
 
 @Injectable()
 export class LinksService {
@@ -13,6 +14,7 @@ export class LinksService {
 
   constructor(
     @Optional() private readonly pathPreviewService?: PathPreviewService,
+    private readonly contractCompatibilityService?: ContractCompatibilityService,
   ) {}
 
   async generateMetadata(request: LinkMetadataRequestDto): Promise<LinkMetadataResponseDto> {
@@ -93,6 +95,18 @@ export class LinksService {
         warnings: warnings.length > 0 ? warnings : undefined,
         ...additionalMetadata,
       },
+      contractCompatibility: this.contractCompatibilityService
+        ? this.contractCompatibilityService.buildCompatibility("linkMetadata")
+        : {
+            contractId: null,
+            currentVersion: null,
+            requiredVersion: "1.0.0",
+            supported: false,
+            schema: null,
+            reason: "Compatibility checks are unavailable.",
+            recommendation:
+              "Register ContractCompatibilityService in LinksModule.",
+          },
     };
   }
 

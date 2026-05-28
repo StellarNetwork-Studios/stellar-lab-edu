@@ -9,6 +9,7 @@ import * as crypto from "crypto";
 
 import { PathPreviewService } from "./path-preview.service";
 import type { CreateQuoteDto, QuoteResponseDto } from "./dto/quote.dto";
+import { ContractCompatibilityService } from "../contract/contract-compatibility.service";
 
 const DEFAULT_SLIPPAGE_BPS = 50; // 0.5%
 const DEFAULT_TTL_SECONDS = 30;
@@ -24,7 +25,10 @@ export class QuoteService {
   /** In-memory store — sufficient for debugging/dispute resolution per spec. */
   private readonly store = new Map<string, StoredQuote>();
 
-  constructor(private readonly pathPreview: PathPreviewService) {}
+  constructor(
+    private readonly pathPreview: PathPreviewService,
+    private readonly contractCompatibilityService: ContractCompatibilityService,
+  ) {}
 
   async createQuote(dto: CreateQuoteDto): Promise<QuoteResponseDto> {
     const slippageBps = dto.maxSlippageBps ?? DEFAULT_SLIPPAGE_BPS;
@@ -79,6 +83,9 @@ export class QuoteService {
       maxSlippageBps: slippageBps,
       horizonUrl,
       preflight,
+      contractCompatibility: this.contractCompatibilityService.buildCompatibility(
+        "quote",
+      ),
     };
 
     this.store.set(quoteId, { response, expiresAt });

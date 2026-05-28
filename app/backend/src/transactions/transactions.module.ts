@@ -6,9 +6,10 @@ import { TransactionsService } from "./transaction.service";
 import { SorobanRpcService } from "./soroban-rpc.service";
 import { ApiKeysModule } from "../api-keys/api-keys.module";
 import { ApiKeyGuard } from "../auth/guards/api-key.guard";
+import { ContractModule } from "../contract/contract.module";
 
 @Module({
-  imports: [AppConfigModule, ApiKeysModule],
+  imports: [AppConfigModule, ApiKeysModule, ContractModule],
   controllers: [TransactionsController],
   providers: [HorizonService, TransactionsService, SorobanRpcService, ApiKeyGuard],
   exports: [HorizonService, TransactionsService],

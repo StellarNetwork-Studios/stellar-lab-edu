@@ -13,6 +13,7 @@ import {
   Matches,
 } from "class-validator";
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
+import type { ContractCompatibilityDto } from "../../contract/contract-compatibility.types";
 
 import { PathAssetRefDto } from "./path-preview.dto";
 
@@ -88,4 +89,9 @@ export class QuoteResponseDto {
   @ApiProperty({ description: "Horizon URL used for path search" }) horizonUrl!: string;
   @ApiPropertyOptional({ description: "Preflight simulation result, if requested" })
   preflight?: { feasible: boolean; error?: string };
+  @ApiProperty({
+    description: "Contract compatibility metadata for the current QuickEx deployment",
+    type: Object,
+  })
+  contractCompatibility!: ContractCompatibilityDto;
 }

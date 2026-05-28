@@ -118,6 +118,20 @@ export class AppConfigService {
   }
 
   /**
+   * QuickEx Soroban contract deployment version (optional). Used for compatibility checks.
+   */
+  get quickexContractVersion(): string | undefined {
+    return this.configService.get('QUICKEX_CONTRACT_VERSION', { infer: true });
+  }
+
+  /**
+   * QuickEx Soroban contract schema identifier (optional). Used for compatibility metadata.
+   */
+  get quickexContractSchema(): string | undefined {
+    return this.configService.get('QUICKEX_CONTRACT_SCHEMA', { infer: true });
+  }
+
+  /**
    * Sentry DSN for error reporting. Undefined means Sentry is disabled.
    */
   get sentryDsn(): string | undefined {

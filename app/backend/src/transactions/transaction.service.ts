@@ -16,6 +16,7 @@ import {
 import { buildScVal } from "./utils/param-builder";
 import { SorobanRpcService } from "./soroban-rpc.service";
 import { mapSimulationError } from "./simulation-error.mapper";
+import { ContractCompatibilityService } from "../contract/contract-compatibility.service";
 
 const STROOPS_PER_XLM = 10_000_000;
 const BASE_FEE = 100; // stroops
@@ -24,7 +25,10 @@ const BASE_FEE = 100; // stroops
 export class TransactionsService {
   private readonly logger = new Logger(TransactionsService.name);
 
-  constructor(private readonly sorobanRpcService: SorobanRpcService) {}
+  constructor(
+    private readonly sorobanRpcService: SorobanRpcService,
+    private readonly contractCompatibilityService: ContractCompatibilityService,
+  ) {}
 
   async composeTransaction(
     dto: ComposeTransactionDto,
@@ -56,11 +60,31 @@ export class TransactionsService {
       throw new BadRequestException(`Invalid parameter: ${err.message}`);
     }
 
-    // 4. Build the contract invocation operation
+    // 4. Validate contract compatibility before building the invocation
+    const compatibility = this.contractCompatibilityService.validateComposeCompatibility(
+      dto.contractId,
+      dto.method,
+    );
+
+    if (!compatibility.supported) {
+      return {
+        success: false,
+        error: "CONTRACT_VERSION_UNSUPPORTED",
+        userMessage: compatibility.reason,
+        details: {
+          contractId: dto.contractId,
+          requiredVersion: compatibility.requiredVersion,
+          currentVersion: compatibility.currentVersion,
+        },
+        contractCompatibility: compatibility,
+      };
+    }
+
+    // 5. Build the contract invocation operation
     const contract = new StellarSdk.Contract(dto.contractId);
     const operation = contract.call(dto.method, ...scParams);
 
-    // 5. Build transaction envelope (no private key — unsigned)
+    // 6. Build transaction envelope (no private key — unsigned)
     const tx = new StellarSdk.TransactionBuilder(account, {
       fee: String(BASE_FEE),
       networkPassphrase,
@@ -160,6 +184,7 @@ export class TransactionsService {
       feeEstimate,
       minResourceFee,
       simulationLatencyMs,
+      contractCompatibility: compatibility,
     };
   }
 }

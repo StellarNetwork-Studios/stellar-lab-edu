@@ -14,6 +14,8 @@ export interface FeeEstimate {
   totalFeeXLM: string; // human-readable XLM
 }
 
+import type { ContractCompatibilityDto } from "../../contract/contract-compatibility.types";
+
 export interface ComposeTransactionResponse {
   success: true;
   unsignedXdr: string;
@@ -21,6 +23,7 @@ export interface ComposeTransactionResponse {
   feeEstimate: FeeEstimate;
   minResourceFee: string;
   simulationLatencyMs: number;
+  contractCompatibility: ContractCompatibilityDto;
 }
 
 export interface ComposeTransactionError {
@@ -28,4 +31,5 @@ export interface ComposeTransactionError {
   error: string;
   userMessage: string;
   details?: Record<string, unknown>;
+  contractCompatibility?: ContractCompatibilityDto;
 }

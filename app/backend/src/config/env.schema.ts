@@ -93,6 +93,18 @@ export const envSchema = Joi.object({
       "Soroban contract ID to stream events from (enables Stellar ingestion service)",
     ),
 
+  QUICKEX_CONTRACT_VERSION: Joi.string()
+    .empty("")
+    .optional()
+    .description(
+      "Semantic version for the configured QuickEx contract deployment, used for compatibility checks",
+    ),
+
+  QUICKEX_CONTRACT_SCHEMA: Joi.string()
+    .empty("")
+    .optional()
+    .description("Schema identifier for the configured QuickEx contract deployment"),
+
   // ---------------------------------------------------------------------------
   // Notification providers (all optional; omit to disable that channel)
   // ---------------------------------------------------------------------------
@@ -264,6 +276,8 @@ export interface EnvConfig {
   FEATURE_FLAGS_CACHE_TTL_MS: number;
   FEATURE_FLAGS_BOOTSTRAP_JSON?: string;
   QUICKEX_CONTRACT_ID?: string;
+  QUICKEX_CONTRACT_VERSION?: string;
+  QUICKEX_CONTRACT_SCHEMA?: string;
   SENDGRID_API_KEY?: string;
   SENDGRID_FROM_EMAIL?: string;
   EXPO_ACCESS_TOKEN?: string;
