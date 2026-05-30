@@ -92,6 +92,24 @@ export class TransactionItemDto {
     platformFee: string;
     totalFee: string;
   };
+
+  @ApiPropertyOptional({
+    description: "Stellar Expert explorer link for this transaction",
+    example: "https://stellar.expert/explorer/testnet/tx/6852...a341",
+  })
+  explorerLink?: string;
+
+  @ApiPropertyOptional({
+    description: "Stellar Expert explorer link for the source account",
+    example: "https://stellar.expert/explorer/testnet/account/GABCD...1234",
+  })
+  sourceExplorerLink?: string;
+
+  @ApiPropertyOptional({
+    description: "Stellar Expert explorer link for the destination account",
+    example: "https://stellar.expert/explorer/testnet/account/GDCBA...4321",
+  })
+  destinationExplorerLink?: string;
 }
 
 export class TransactionResponseDto {
