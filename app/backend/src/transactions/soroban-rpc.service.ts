@@ -157,4 +157,12 @@ export class SorobanRpcService {
     );
     return network.passphrase;
   }
+
+  async submitTransaction(
+    tx: StellarSdk.TransactionEnvelope,
+  ): Promise<SorobanRpc.Api.SendTransactionResponse> {
+    return this.executeWithFailover("submitTransaction", (server) =>
+      server.sendTransaction(tx),
+    );
+  }
 }

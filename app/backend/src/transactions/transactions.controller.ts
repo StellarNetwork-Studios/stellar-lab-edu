@@ -20,6 +20,9 @@ import { HorizonService } from "./horizon.service";
 
 import { ApiKeyGuard } from "../auth/guards/api-key.guard";
 import { ComposeTransactionDto } from "./dto/compose-transaction.dto";
+import { SimulateTransactionDto } from "./dto/simulate.dto";
+import { BuildTransactionDto } from "./dto/build.dto";
+import { SubmitTransactionDto } from "./dto/submit.dto";
 import { TransactionsService } from "./transaction.service";
 
 @ApiTags("transactions")
@@ -79,5 +82,85 @@ export class TransactionsController {
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
   async compose(@Body() dto: ComposeTransactionDto) {
     return this.transactionService.composeTransaction(dto);
+  }
+
+  @Post("simulate")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "Simulate a contract invocation without building/submitting",
+    description:
+      "Validates parameters and returns resource/fee estimates with consistent, deterministic error codes. " +
+      "Useful for preflight checks and user feedback before building a transaction.",
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      "Simulation result with resource estimates and fees, or user-actionable error",
+  })
+  @ApiResponse({
+    status: 400,
+    description: "Invalid request parameters",
+  })
+  @ApiResponse({
+    status: 429,
+    description: "Rate limit exceeded",
+  })
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
+  async simulate(@Body() dto: SimulateTransactionDto) {
+    return this.transactionService.simulateTransaction(dto);
+  }
+
+  @Post("build")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "Build an unsigned transaction ready for signing",
+    description:
+      "Creates a canonical, unsigned transaction envelope with all necessary data for the client to sign. " +
+      "Includes transaction hash for tracking and resource/fee estimates from simulation. " +
+      "No private keys are ever handled by the backend.",
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      "Successfully built unsigned transaction with XDR, hash, and resource estimates",
+  })
+  @ApiResponse({
+    status: 400,
+    description: "Invalid request parameters",
+  })
+  @ApiResponse({
+    status: 429,
+    description: "Rate limit exceeded",
+  })
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
+  async build(@Body() dto: BuildTransactionDto) {
+    return this.transactionService.buildTransaction(dto);
+  }
+
+  @Post("submit")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "Submit an already-signed transaction to the network",
+    description:
+      "Submits a pre-signed transaction envelope to the Stellar network via Soroban RPC. " +
+      "Supports optional idempotency keys to ensure duplicate submissions return consistent outcomes. " +
+      "Backend never handles private keys during submission.",
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      "Successfully submitted transaction with hash, status, and optional metadata",
+  })
+  @ApiResponse({
+    status: 400,
+    description: "Invalid XDR or request parameters",
+  })
+  @ApiResponse({
+    status: 429,
+    description: "Rate limit exceeded",
+  })
+  @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
+  async submit(@Body() dto: SubmitTransactionDto) {
+    return this.transactionService.submitTransaction(dto);
   }
 }
