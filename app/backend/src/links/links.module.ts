@@ -16,6 +16,7 @@ import { ApiKeysModule } from "../api-keys/api-keys.module";
 import { JobQueueModule } from "../job-queue/job-queue.module";
 import { FeatureFlagsModule } from "../feature-flags/feature-flags.module";
 import { PrivacyModule } from "../privacy/privacy.module";
+import { ContractsModule } from "../contracts/contracts.module";
 
 @Module({
   controllers: [
@@ -47,6 +48,7 @@ import { PrivacyModule } from "../privacy/privacy.module";
     ApiKeysModule,
     FeatureFlagsModule,
     PrivacyModule,
+    ContractsModule,
     forwardRef(() => JobQueueModule),
   ],
 })
