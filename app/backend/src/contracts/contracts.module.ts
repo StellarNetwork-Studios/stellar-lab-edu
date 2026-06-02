@@ -8,28 +8,20 @@ import { ContractRegistryController } from './contract-registry.controller';
 import { ContractChangeWebhooksController } from './contract-change-webhooks.controller';
 import { ContractRegistryService } from './contract-registry.service';
 import { ContractChangeWebhookService } from './contract-change-webhook.service';
-import { ContractCompatibilityService } from './contract-compatibility.service';
-import { ContractCompatibilityGuard } from './guards/contract-compatibility.guard';
-import { ContractCompatibilityController } from './contract-compatibility.controller';
+import { ContractViewsController } from './views/contract-views.controller';
+import { ContractViewsService } from './views/contract-views.service';
 
 @Module({
   imports: [ApiKeysModule, AuditModule, SupabaseModule],
-  controllers: [
-    ContractRegistryController,
-    ContractChangeWebhooksController,
-    ContractCompatibilityController,
-  ],
+  controllers: [ContractRegistryController, ContractChangeWebhooksController, ContractViewsController],
   providers: [
     ContractRegistryService,
     ContractChangeWebhookService,
     ContractCompatibilityService,
     ContractCompatibilityGuard,
     ApiKeyGuard,
+    ContractViewsService
   ],
-  exports: [
-    ContractRegistryService,
-    ContractCompatibilityService,
-    ContractCompatibilityGuard,
-  ],
+  exports: [ContractRegistryService, ContractViewsService],
 })
 export class ContractsModule {}

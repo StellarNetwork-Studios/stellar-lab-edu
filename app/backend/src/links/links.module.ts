@@ -16,7 +16,8 @@ import { ApiKeysModule } from "../api-keys/api-keys.module";
 import { JobQueueModule } from "../job-queue/job-queue.module";
 import { FeatureFlagsModule } from "../feature-flags/feature-flags.module";
 import { PrivacyModule } from "../privacy/privacy.module";
-import { ContractsModule } from "../contracts/contracts.module";
+import { TransactionsModule } from "../transactions/transactions.module";
+import { AuditModule } from "../audit/audit.module";
 
 @Module({
   controllers: [
@@ -48,7 +49,8 @@ import { ContractsModule } from "../contracts/contracts.module";
     ApiKeysModule,
     FeatureFlagsModule,
     PrivacyModule,
-    ContractsModule,
+    TransactionsModule,
+    AuditModule,
     forwardRef(() => JobQueueModule),
   ],
 })
