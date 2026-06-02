@@ -10,6 +10,7 @@ import { EscrowEventRepository } from "./escrow-event.repository";
 import { PrivacyEventRepository } from "./privacy-event.repository";
 import { AdminEventRepository } from "./admin-event.repository";
 import { StealthEventRepository } from "./stealth-event.repository";
+import { UnparsedSorobanEventRepository } from "./unparsed-soroban-event.repository";
 import type {
   QuickExContractEvent,
   EscrowEvent,
@@ -26,6 +27,13 @@ export interface LedgerRangeResult {
   processed: number;
   persisted: number;
   skippedUnknownSchema: number;
+  parseFailures: number;
+}
+
+export interface ReplayUnparsedResult {
+  attempted: number;
+  replayed: number;
+  stillUnparsed: number;
 }
 
 export interface DualReadConfig {
@@ -60,6 +68,7 @@ export class SorobanEventIndexerService {
     private readonly privacyRepo: PrivacyEventRepository,
     private readonly adminRepo: AdminEventRepository,
     private readonly stealthRepo: StealthEventRepository,
+    private readonly unparsedRepo: UnparsedSorobanEventRepository,
     private readonly metrics: MetricsService,
     private readonly eventEmitter: EventEmitter2,
   ) {
@@ -106,7 +115,7 @@ export class SorobanEventIndexerService {
       this.logger.log(
         `Contract ${contractId}: ledger range [${effectiveFrom}, ${toLedger}] already indexed; skipping.`,
       );
-      return { fromLedger, toLedger, processed: 0, persisted: 0, skippedUnknownSchema: 0 };
+      return { fromLedger, toLedger, processed: 0, persisted: 0, skippedUnknownSchema: 0, parseFailures: 0 };
     }
 
     const inDualReadWindow = this.isInDualReadWindow(effectiveFrom, dualReadConfig);
@@ -289,5 +298,40 @@ export class SorobanEventIndexerService {
       default:
         this.logger.debug(`Event ${(event as QuickExContractEvent).eventType} not persisted.`);
     }
+  }
+
+  private async captureUnparsedEvent(
+    raw: RawHorizonContractEvent,
+  ): Promise<"unknown_schema_version" | "parse_failure" | "ignored"> {
+    const metadata = this.parser.inspect(raw);
+    if (!metadata) {
+      return "ignored";
+    }
+
+    if (
+      !this.parser.isSupportedSchemaVersion(
+        metadata.eventName,
+        metadata.schemaVersion,
+        metadata.contractId,
+      )
+    ) {
+      await this.unparsedRepo.save({
+        raw,
+        reason: "unknown_schema_version",
+        eventName: metadata.eventName,
+        schemaVersion: metadata.schemaVersion,
+      });
+      return "unknown_schema_version";
+    }
+
+    this.metrics.recordError("soroban_indexer", "parse_failure");
+    await this.unparsedRepo.save({
+      raw,
+      reason: "parse_failure",
+      eventName: metadata.eventName,
+      schemaVersion: metadata.schemaVersion,
+      errorMessage: "Parser returned null for a supported schema version",
+    });
+    return "parse_failure";
   }
 }
