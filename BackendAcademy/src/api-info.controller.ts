@@ -1,0 +1,14 @@
+import { Controller, Get } from '@nestjs/common';
+
+@Controller('api')
+export class ApiInfoController {
+  @Get()
+  getApiInfo() {
+    return {
+      name: 'StellarFoundry API',
+      version: process.env.npm_package_version || '1.0.0',
+      status: 'ok',
+      docs: '/api/docs',
+    };
+  }
+}
